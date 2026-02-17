@@ -23,7 +23,17 @@ class _LoginState extends State<Login> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  // Error message states
+  String? _emailError;
+  String? _passwordError;
+
   Future<void> _loginUser() async {
+    // Clear previous errors
+    setState(() {
+      _emailError = null;
+      _passwordError = null;
+    });
+
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       _showErrorDialog('Please enter both email and password');
       return;
@@ -43,21 +53,25 @@ class _LoginState extends State<Login> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => HomeScreen()),
-          (route) => false,
+              (route) => false,
         );
       }
     } on FirebaseAuthException catch (e) {
-      String errorMessage = 'Login failed';
       if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email';
+        setState(() {
+          _emailError = "The email is incorrect";
+        });
       } else if (e.code == 'wrong-password') {
-        errorMessage = 'Incorrect password';
+        setState(() {
+          _passwordError = "The entered password is incorrect";
+        });
       } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email address';
+        setState(() {
+          _emailError = "Invalid email format";
+        });
       } else if (e.code == 'user-disabled') {
-        errorMessage = 'This account has been disabled';
+        _showErrorDialog('This account has been disabled');
       }
-      _showErrorDialog(errorMessage);
     } catch (e) {
       _showErrorDialog('An error occurred. Please try again');
     } finally {
@@ -180,17 +194,42 @@ class _LoginState extends State<Login> {
                     ),
                   ),
                   const SizedBox(height: 60),
+                  // Email field with example placeholder
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: _buildInputDecoration("Email address"),
+                    decoration: _buildInputDecoration(
+                      "e.g., name@example.com",
+                      errorText: _emailError,
+                    ),
+                    onChanged: (value) {
+                      if (_emailError != null) {
+                        setState(() {
+                          _emailError = null;
+                        });
+                      }
+                    },
                   ),
+                  // Email error message at bottom
+                  if (_emailError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, left: 12),
+                      child: Text(
+                        _emailError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 20),
+                  // Password field with example placeholder
                   TextField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     decoration: _buildInputDecoration(
-                      "Password",
+                      "e.g., ••••••••",
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword
@@ -205,19 +244,38 @@ class _LoginState extends State<Login> {
                           });
                         },
                       ),
+                      errorText: _passwordError,
                     ),
+                    onChanged: (value) {
+                      if (_passwordError != null) {
+                        setState(() {
+                          _passwordError = null;
+                        });
+                      }
+                    },
                   ),
+                  // Password error message at bottom
+                  if (_passwordError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, left: 12),
+                      child: Text(
+                        _passwordError!,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 10),
-                  // Forgot Password button - Fixed to be always clickable
+                  // Forgot Password button
                   Align(
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
                       onTap: () async {
-                        // If email field is empty, show a dialog asking for email
                         if (_emailController.text.isEmpty) {
                           _showEnterEmailDialog();
                         } else {
-                          // If email is already entered, directly send reset email
                           await _sendPasswordResetEmail();
                         }
                       },
@@ -251,21 +309,21 @@ class _LoginState extends State<Login> {
                       ),
                       child: _isLoading
                           ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                           : const Text(
-                              "LOG IN",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.1,
-                              ),
-                            ),
+                        "LOG IN",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -290,7 +348,7 @@ class _LoginState extends State<Login> {
                             children: [
                               TextSpan(
                                   text:
-                                      "DON'T HAVE AN ACCOUNT? CREATE ACCOUNT "),
+                                  "DON'T HAVE AN ACCOUNT? CREATE ACCOUNT "),
                             ],
                           ),
                         ),
@@ -306,10 +364,21 @@ class _LoginState extends State<Login> {
     );
   }
 
-  InputDecoration _buildInputDecoration(String hint, {Widget? suffixIcon}) {
+  InputDecoration _buildInputDecoration(String hint,
+      {Widget? suffixIcon, String? errorText}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: const TextStyle(color: colorGreenDark, fontSize: 14),
+      hintStyle: const TextStyle(
+        color: colorGreenDark,
+        fontSize: 14,
+        fontStyle: FontStyle.italic,
+      ),
+      errorText: errorText,
+      errorStyle: const TextStyle(
+        color: Colors.red,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
       filled: true,
       fillColor: colorPinkish,
       suffixIcon: suffixIcon,
@@ -317,6 +386,31 @@ class _LoginState extends State<Login> {
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(15),
         borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: BorderSide.none,
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: BorderSide(
+          color: colorGreenDark,
+          width: 1.5,
+        ),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: const BorderSide(
+          color: Colors.red,
+          width: 1,
+        ),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(15),
+        borderSide: const BorderSide(
+          color: Colors.red,
+          width: 1.5,
+        ),
       ),
     );
   }
@@ -327,13 +421,16 @@ class _LoginState extends State<Login> {
       builder: (context) => AlertDialog(
         backgroundColor: colorCream,
         title:
-            const Text('Enter Email', style: TextStyle(color: colorGreenDark)),
+        const Text('Enter Email', style: TextStyle(color: colorGreenDark)),
         content: TextField(
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            hintText: 'Enter your email',
-            hintStyle: const TextStyle(color: colorGreenDark),
+            hintText: 'e.g., name@example.com',
+            hintStyle: const TextStyle(
+              color: colorGreenDark,
+              fontStyle: FontStyle.italic,
+            ),
             filled: true,
             fillColor: colorPinkish,
             border: OutlineInputBorder(
@@ -346,7 +443,7 @@ class _LoginState extends State<Login> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child:
-                const Text('Cancel', style: TextStyle(color: colorGreenDark)),
+            const Text('Cancel', style: TextStyle(color: colorGreenDark)),
           ),
           TextButton(
             onPressed: () async {
