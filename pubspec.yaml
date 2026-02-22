@@ -10,11 +10,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  speech_to_text: ^7.3.0
   fl_chart: ^1.1.1
   cloud_firestore: ^6.1.2
   firebase_analytics: ^12.1.2
   firebase_auth: ^6.1.4
+  speech_to_text: ^7.3.0
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

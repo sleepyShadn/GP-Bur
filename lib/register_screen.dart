@@ -15,6 +15,7 @@ class _RegisterState extends State<Register> {
   static const Color colorCream = Color(0xFFEDE8DC);
   static const Color colorGreenDark = Color(0xFFA5B68D);
   static const Color colorGreenLight = Color(0xFFC1CFA1);
+  static const Color colorPlaceholder = Color(0xFF362427);
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -302,10 +303,10 @@ class _RegisterState extends State<Register> {
         'createdAt': FieldValue.serverTimestamp(),
         'points': 0,
         'seedsInventory': {
-          'Regular Seeds': 5,
-          'Rare Seeds': 2,
-          'Legendary Seeds': 1,
-          'Growth Accelerator': 1,
+          'Regular Seeds': 0,
+          'Rare Seeds': 0,
+          'Legendary Seeds': 0,
+          'Growth Accelerator': 0,
         },
       });
 
@@ -665,7 +666,7 @@ class _RegisterState extends State<Register> {
                         const Text(
                           "Gender",
                           style: TextStyle(
-                              color: colorGreenDark,
+                              color: colorPlaceholder,
                               fontWeight: FontWeight.w500),
                         ),
                         const Spacer(),
@@ -761,7 +762,7 @@ class _RegisterState extends State<Register> {
           ),
           const SizedBox(width: 4),
           Text(gender,
-              style: const TextStyle(color: colorGreenDark, fontSize: 13)),
+              style: const TextStyle(color: colorPlaceholder, fontSize: 13)),
         ],
       ),
     );
@@ -798,7 +799,7 @@ class _RegisterState extends State<Register> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        color: colorGreenDark,
+        color: colorPlaceholder,
         fontSize: 14,
         fontStyle: FontStyle.italic,
       ),
@@ -827,11 +828,11 @@ class _RegisterState extends State<Register> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(15),
-        borderSide: BorderSide(
-
+        borderSide: const BorderSide(
+          color: colorGreenDark,
+          width: 2,
+        ),
       ),
-          )
     );
-
   }
 }
