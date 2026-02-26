@@ -3,6 +3,11 @@ import 'home_screen.dart';
 import 'analysis_screen.dart';
 import 'profile_screen.dart';
 import 'shop_screen.dart';
+import 'apple_picking_screen.dart';
+import 'cutting_leaves_screen.dart';
+import 'watering_flowers_screen.dart';
+
+
 
 class GardenPage extends StatefulWidget {
   const GardenPage({super.key});
@@ -565,6 +570,8 @@ class _GardenPageState extends State<GardenPage> {
     return fullName;
   }
 
+  // lib/screens/garden_page.dart (الجزء المعدل فقط)
+
   Widget _buildMiniGamesCard() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
@@ -602,40 +609,83 @@ class _GardenPageState extends State<GardenPage> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildGameButton("Apple\nPicking", Icons.apple),
+                // Apple Picking Game Button - المعدل
+                GestureDetector(
+                  onTap: () {
+                    // فقط يوجه إلى صفحة اللعبة بدون إضافة نقاط
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ApplePickingScreen()),
+                    );
+                  },
+                  child: _buildGameButton("Apple\nPicking 🍎", Icons.apple),
+                ),
                 const SizedBox(width: 12),
-                _buildGameButton("Leaves\nCutting", Icons.forest),
+
+                // Leaves Cutting Game Button
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const CuttingLeavesScreen()),
+                    );
+                  },
+                  child: _buildGameButton("Leaves\nCutting 🍃", Icons.forest),
+                ),
                 const SizedBox(width: 12),
-                _buildGameButton("Watering\nFlowers", Icons.water_drop),
+
+                // Watering Flowers Game Button
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const WateringFlowersScreen()),
+                    );
+                  },
+                  child: _buildGameButton("Watering\nFlowers 💦", Icons.water_drop),
+                ),
               ],
             ),
           ),
           const SizedBox(height: 15),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: colorGreenLight.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Total Points:",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: colorGreenDark,
-                  ),
-                ),
-                Text(
-                  "$points points",
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: colorGreenDark,
-                  ),
-                ),
-              ],
+
+        ],
+      ),
+    );
+  }
+
+// تعديل دالة _buildGameButton لإزالة playMiniGame منها
+  Widget _buildGameButton(String label, IconData icon) {
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [colorGreenLight, colorGreenDark],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: Colors.white, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ],
@@ -643,31 +693,7 @@ class _GardenPageState extends State<GardenPage> {
     );
   }
 
-  Widget _buildGameButton(String label, IconData icon) {
-    return ElevatedButton(
-      onPressed: playMiniGame,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: colorGreenLight,
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 32),
-          const SizedBox(height: 6),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
+
 
   Widget _buildBottomNav() {
     return BottomAppBar(
