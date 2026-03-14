@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'auth_selection_screen.dart';
 import 'register_screen.dart';
 
 class SplashScreen extends StatelessWidget {
@@ -93,7 +94,7 @@ class SplashScreen extends StatelessWidget {
                             onPressed: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
-                                    builder: (context) => Register()),
+                                    builder: (context) => AuthSelectionScreen()),
                               );
                             },
                             style: ElevatedButton.styleFrom(

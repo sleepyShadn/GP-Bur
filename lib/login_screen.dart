@@ -201,7 +201,7 @@ class _LoginState extends State<Login> {
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     decoration: _buildInputDecoration(
-                      "e.g., name@example.com",
+                      "sara@example.com",
                       errorText: _emailError,
                     ),
                     onChanged: (value) {
@@ -231,7 +231,7 @@ class _LoginState extends State<Login> {
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     decoration: _buildInputDecoration(
-                      "e.g., ••••••••",
+                      "•••••••",
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword
@@ -342,7 +342,7 @@ class _LoginState extends State<Login> {
                         child: RichText(
                           text: const TextSpan(
                             style: TextStyle(
-                              color: colorGreenDark,
+                              color: Color(0xFF362427),
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0.5,
@@ -428,7 +428,7 @@ class _LoginState extends State<Login> {
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           decoration: InputDecoration(
-            hintText: 'e.g., name@example.com',
+            hintText: 'sara@gmail.com',
             hintStyle: const TextStyle(
               color: colorGreenDark,
               fontStyle: FontStyle.italic,

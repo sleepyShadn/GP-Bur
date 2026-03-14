@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'shop_screen.dart';
@@ -18,19 +20,165 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   static const Color colorGreenDark = Color(0xff7f9461);
   static const Color colorGreenLight = Color(0xFFC1CFA1);
 
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   int _selectedIndex = 3;
 
-  final List<String> moodLabels = [
-    'Happy',
-    'Sad',
-    'Anxious',
-    'Angry',
-    'Relaxed',
-    'Energetic',
-    'Focused'
+  // Classifications list
+  final List<String> _classifications = [
+    'anxiety',
+    'depression',
+    'anorexia',
+    'bipolar',
+    'ADHD',
+    'antisocial personality',
+    'bulimia'
   ];
 
-  final List<int> moodValues = [12, 5, 8, 3, 10, 15, 9];
+  // Time range options
+  final List<String> _timeRanges = ['Day', 'Week', 'Month', 'Year'];
+  String _selectedTimeRange = 'Month';
+
+  // Data from Firebase
+  int _totalPoints = 0;
+  int _completedActivities = 0;
+  int _totalGoals = 0;
+
+  // Classification counts for histogram
+  Map<String, int> _classificationCounts = {};
+  int _totalAnalyses = 0;
+
+  bool _isLoading = true;
+  String _userId = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentUser();
+  }
+
+  Future<void> _getCurrentUser() async {
+    User? user = _auth.currentUser;
+    if (user != null) {
+      setState(() {
+        _userId = user.uid;
+      });
+      await _loadUserData();
+      await _loadAnalysesData();
+    }
+  }
+
+  Future<void> _loadUserData() async {
+    if (_userId.isEmpty) return;
+
+    try {
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(_userId).get();
+      if (userDoc.exists) {
+        setState(() {
+          _totalPoints = userDoc.get('points') ?? 0;
+        });
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+    }
+  }
+
+  Future<void> _loadAnalysesData() async {
+    if (_userId.isEmpty) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Calculate date range based on selected time range
+      DateTime now = DateTime.now();
+      DateTime startDate;
+
+      switch (_selectedTimeRange) {
+        case 'Day':
+          startDate = DateTime(now.year, now.month, now.day);
+          break;
+        case 'Week':
+          startDate = now.subtract(const Duration(days: 7));
+          break;
+        case 'Month':
+          startDate = DateTime(now.year, now.month, 1);
+          break;
+        case 'Year':
+          startDate = DateTime(now.year, 1, 1);
+          break;
+        default:
+          startDate = DateTime(now.year, now.month, 1);
+      }
+
+      // Get all analyses for the user within the time range
+      QuerySnapshot analysesSnapshot = await _firestore
+          .collection('users')
+          .doc(_userId)
+          .collection('analyses')
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .orderBy('timestamp', descending: true)
+          .get();
+
+      // Initialize counts for all classifications
+      Map<String, int> counts = {};
+      for (var classification in _classifications) {
+        counts[classification] = 0;
+      }
+
+      int completedActs = 0;
+      int goalsCount = 0;
+
+      // Process each analysis
+      for (var doc in analysesSnapshot.docs) {
+        var data = doc.data() as Map<String, dynamic>;
+
+        // Count classification
+        String classification = data['classification'] ?? '';
+        if (_classifications.contains(classification)) {
+          counts[classification] = (counts[classification] ?? 0) + 1;
+        }
+
+        // Count goals (each analysis has one goal)
+        if (data['goal'] != null && data['goal'].toString().isNotEmpty) {
+          goalsCount++;
+        }
+
+        // Count completed activities
+        List<dynamic> activities = data['activities'] ?? [];
+        for (var activity in activities) {
+          if (activity['completed'] == true) {
+            completedActs++;
+          }
+        }
+      }
+
+      setState(() {
+        _classificationCounts = counts;
+        _completedActivities = completedActs;
+        _totalGoals = goalsCount;
+        _totalAnalyses = analysesSnapshot.docs.length;
+        _isLoading = false;
+      });
+
+    } catch (e) {
+      print('Error loading analyses: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _onTimeRangeChanged(String? newRange) {
+    if (newRange != null) {
+      setState(() {
+        _selectedTimeRange = newRange;
+      });
+      _loadAnalysesData();
+    }
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -70,8 +218,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Report Generated'),
-        content: const Text(
-            'Analytics report has been successfully generated and saved to your device'),
+        content: Text(
+            'Analytics report for $_selectedTimeRange has been successfully generated and saved to your device\n\n'
+                'Total Analyses: $_totalAnalyses\n'
+                'Completed Activities: $_completedActivities\n'
+                'Total Goals: $_totalGoals\n'
+                'Total Points: $_totalPoints'
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -95,7 +248,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
+          child: _isLoading
+              ? const Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(colorGreenDark),
+            ),
+          )
+              : SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -125,6 +284,56 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         color: colorGreenDark),
                   ],
                 ),
+                const SizedBox(height: 16),
+
+                // Time Range Selector
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today, color: colorGreenDark, size: 16),
+                      const SizedBox(width: 8),
+                      Text(
+                        "Time Range:",
+                        style: TextStyle(
+                          color: colorGreenDark,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: colorGreenLight.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: DropdownButton<String>(
+                            value: _selectedTimeRange,
+                            isExpanded: true,
+                            underline: const SizedBox(),
+                            icon: Icon(Icons.arrow_drop_down, color: colorGreenDark),
+                            items: _timeRanges.map((String range) {
+                              return DropdownMenuItem<String>(
+                                value: range,
+                                child: Text(
+                                  range,
+                                  style: TextStyle(color: colorGreenDark),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: _onTimeRangeChanged,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 24),
 
                 // Summary Cards
@@ -133,7 +342,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     Expanded(
                       child: _buildSummaryCard(
                         title: "Points",
-                        value: "1,245",
+                        value: _totalPoints.toString(),
                         icon: Icons.star,
                       ),
                     ),
@@ -141,7 +350,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     Expanded(
                       child: _buildSummaryCard(
                         title: "Activities",
-                        value: "32",
+                        value: _completedActivities.toString(),
                         icon: Icons.check_circle,
                       ),
                     ),
@@ -153,26 +362,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     Expanded(
                       child: _buildSummaryCard(
                         title: "Goals",
-                        value: "18",
+                        value: _totalGoals.toString(),
                         icon: Icons.flag,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildSummaryCard(
-                        title: "Streak Days",
-                        value: "24",
-                        icon: Icons.calendar_today,
+                        title: "Analyses",
+                        value: _totalAnalyses.toString(),
+                        icon: Icons.analytics,
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
 
-                // Mood Distribution Title
+                // Classification Distribution Title
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
@@ -184,7 +392,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          "Mood Distribution This Month",
+                          "Mental Health Analysis Distribution",
                           style: TextStyle(
                             color: colorGreenDark,
                             fontWeight: FontWeight.bold,
@@ -197,7 +405,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          "Total: ${moodValues.reduce((a, b) => a + b)} days",
+                          "Total: $_totalAnalyses analyses",
                           style: TextStyle(
                             color: colorGreenDark,
                             fontSize: 12,
@@ -213,16 +421,23 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
                 // Histogram Chart
                 Container(
-                  height: 250,
+                  height: 300,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: BarChart(
+                  child: _classificationCounts.isEmpty
+                      ? Center(
+                    child: Text(
+                      "No data available for $_selectedTimeRange",
+                      style: TextStyle(color: colorGreenDark),
+                    ),
+                  )
+                      : BarChart(
                     BarChartData(
                       alignment: BarChartAlignment.spaceAround,
-                      maxY: 20,
+                      maxY: _getMaxY().toDouble(),
                       barTouchData: BarTouchData(
                         enabled: true,
                         touchTooltipData: BarTouchTooltipData(
@@ -245,25 +460,37 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                             showTitles: true,
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
-                              if (index >= 0 && index < moodLabels.length) {
+                              if (index >= 0 && index < _classifications.length) {
+                                String label = _classifications[index];
+                                // Shorten labels for display
+                                if (label == 'antisocial personality') {
+                                  label = 'Antisocial';
+                                } else if (label == 'anorexia') {
+                                  label = 'Anorexia';
+                                } else {
+                                  label = label.substring(0, 1).toUpperCase() +
+                                      label.substring(1, label.length > 6 ? 6 : label.length);
+                                }
+
                                 return Container(
-                                  width: 40,
+                                  width: 45,
                                   alignment: Alignment.center,
                                   child: Text(
-                                    moodLabels[index],
+                                    label,
                                     style: TextStyle(
                                       color: colorGreenDark,
-                                      fontSize: 10,
+                                      fontSize: 9,
                                       fontWeight: FontWeight.w500,
                                     ),
-                                    maxLines: 1,
+                                    maxLines: 2,
+                                    textAlign: TextAlign.center,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 );
                               }
                               return const SizedBox();
                             },
-                            reservedSize: 32,
+                            reservedSize: 40,
                           ),
                         ),
                         leftTitles: AxisTitles(
@@ -291,7 +518,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       gridData: FlGridData(
                         show: true,
                         drawVerticalLine: false,
-                        horizontalInterval: 5,
+                        horizontalInterval: _getInterval(),
                         getDrawingHorizontalLine: (value) {
                           return FlLine(
                             color: colorGreenLight.withOpacity(0.3),
@@ -302,12 +529,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       borderData: FlBorderData(
                         show: false,
                       ),
-                      barGroups: List.generate(moodValues.length, (index) {
+                      barGroups: List.generate(_classifications.length, (index) {
+                        String classification = _classifications[index];
+                        int count = _classificationCounts[classification] ?? 0;
+
                         return BarChartGroupData(
                           x: index,
                           barRods: [
                             BarChartRodData(
-                              toY: moodValues[index].toDouble(),
+                              toY: count.toDouble(),
                               width: 16,
                               color: colorGreenDark,
                               borderRadius: BorderRadius.circular(4),
@@ -321,7 +551,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Mood Details List
+                // Classification Details List
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -332,7 +562,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Mood Details",
+                        "Classification Details ($_selectedTimeRange)",
                         style: TextStyle(
                           color: colorGreenDark,
                           fontWeight: FontWeight.bold,
@@ -342,7 +572,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 12),
-                      ...List.generate(moodLabels.length, (index) {
+                      ...List.generate(_classifications.length, (index) {
+                        String classification = _classifications[index];
+                        int count = _classificationCounts[classification] ?? 0;
+                        double percentage = _totalAnalyses > 0
+                            ? (count / _totalAnalyses * 100)
+                            : 0;
+
+                        // Format classification name for display
+                        String displayName = classification.split(' ').map((word) =>
+                        word[0].toUpperCase() + word.substring(1)
+                        ).join(' ');
+
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6),
                           child: Row(
@@ -358,7 +599,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  moodLabels[index],
+                                  displayName,
                                   style: TextStyle(
                                     color: colorGreenDark,
                                     fontSize: 13,
@@ -368,9 +609,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                 ),
                               ),
                               Container(
-                                constraints: BoxConstraints(minWidth: 24),
+                                constraints: const BoxConstraints(minWidth: 24),
                                 child: Text(
-                                  '${moodValues[index]}',
+                                  '$count',
                                   style: TextStyle(
                                     color: colorGreenDark,
                                     fontWeight: FontWeight.bold,
@@ -381,9 +622,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               ),
                               const SizedBox(width: 8),
                               Container(
-                                constraints: BoxConstraints(minWidth: 36),
+                                constraints: const BoxConstraints(minWidth: 36),
                                 child: Text(
-                                  '${(moodValues[index] / moodValues.reduce((a, b) => a + b) * 100).toStringAsFixed(1)}%',
+                                  '${percentage.toStringAsFixed(1)}%',
                                   style: TextStyle(
                                     color: colorGreenLight,
                                     fontSize: 12,
@@ -395,6 +636,31 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           ),
                         );
                       }),
+
+                      const Divider(color: colorGreenLight, height: 24),
+
+                      // Summary Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            "Total Analyses:",
+                            style: TextStyle(
+                              color: colorGreenDark,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          Text(
+                            '$_totalAnalyses',
+                            style: TextStyle(
+                              color: colorGreenDark,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                 ),
@@ -447,6 +713,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
+  }
+
+  int _getMaxY() {
+    int max = 0;
+    _classificationCounts.forEach((key, value) {
+      if (value > max) max = value;
+    });
+    return max + 1;
+  }
+
+  double _getInterval() {
+    int max = _getMaxY();
+    if (max <= 5) return 1;
+    if (max <= 10) return 2;
+    if (max <= 20) return 5;
+    return 10;
   }
 
   Widget _buildSummaryCard({

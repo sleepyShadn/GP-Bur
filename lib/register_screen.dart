@@ -474,7 +474,7 @@ class _RegisterState extends State<Register> {
                     child: Text(
                       "Create your account",
                       style: TextStyle(
-                        fontSize: 26,
+                        fontSize: 28,
                         fontWeight: FontWeight.bold,
                         color: colorGreenDark,
                       ),
@@ -485,7 +485,7 @@ class _RegisterState extends State<Register> {
                   // Name field
                   TextField(
                     controller: _nameController,
-                    decoration: _buildInputDecoration("e.g., John Doe"),
+                    decoration: _buildInputDecoration("alia"),
                   ),
                   const SizedBox(height: 15),
 
@@ -494,7 +494,7 @@ class _RegisterState extends State<Register> {
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
                     decoration: _buildInputDecoration(
-                      "e.g., example@email.com",
+                      "sara@gmail.com",
                       errorText: _emailError,
                       suffixIcon: _isEmailValid
                           ? const Icon(Icons.check_circle,
@@ -523,7 +523,7 @@ class _RegisterState extends State<Register> {
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     decoration: _buildInputDecoration(
-                      "e.g., Password123!",
+                      "Password123!",
                       suffixIcon: IconButton(
                         icon: Icon(
                           _obscurePassword
@@ -633,7 +633,7 @@ class _RegisterState extends State<Register> {
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
                           decoration: _buildInputDecoration(
-                            "e.g., 70.5",
+                            "70.5",
                             suffix: "kg",
                           ),
                         ),
@@ -644,7 +644,7 @@ class _RegisterState extends State<Register> {
                           controller: _heightController,
                           keyboardType: TextInputType.number,
                           decoration: _buildInputDecoration(
-                            "e.g., 175",
+                            "175",
                             suffix: "cm",
                           ),
                         ),
@@ -724,7 +724,7 @@ class _RegisterState extends State<Register> {
                       child: RichText(
                         text: const TextSpan(
                           style: TextStyle(
-                              color: colorGreenDark,
+                              color: Color(0xFF362427),
                               fontSize: 12,
                               fontWeight: FontWeight.w500),
                           children: [

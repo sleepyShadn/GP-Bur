@@ -56,6 +56,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _userPoints = 0;
   String _currentAnalysisId = '';
 
+  // For tracking consecutive diagnoses
+  List<String> _recentDiagnoses = [];
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _userId = user.uid;
       });
       _loadUserPoints();
+      _loadRecentDiagnoses();
     }
   }
 
@@ -86,6 +90,75 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       print('Error loading points: $e');
+    }
+  }
+
+  Future<void> _loadRecentDiagnoses() async {
+    if (_userId.isEmpty) return;
+
+    try {
+      QuerySnapshot analysisSnapshot = await _firestore
+          .collection('users')
+          .doc(_userId)
+          .collection('analyses')
+          .orderBy('timestamp', descending: true)
+          .limit(3)
+          .get();
+
+      setState(() {
+        _recentDiagnoses = analysisSnapshot.docs
+            .map((doc) => (doc.data() as Map<String, dynamic>)['classification']?.toString() ?? '')
+            .where((classification) => classification.isNotEmpty)
+            .toList();
+      });
+    } catch (e) {
+      print('Error loading recent diagnoses: $e');
+    }
+  }
+
+  Future<void> _checkForRecurringDiagnosis(String newDiagnosis) async {
+    if (_userId.isEmpty || newDiagnosis.isEmpty) return;
+
+    // Update recent diagnoses list
+    _recentDiagnoses.insert(0, newDiagnosis);
+    if (_recentDiagnoses.length > 3) {
+      _recentDiagnoses = _recentDiagnoses.sublist(0, 3);
+    }
+
+    // Check if same diagnosis appears 3 times consecutively
+    if (_recentDiagnoses.length == 3 &&
+        _recentDiagnoses.every((diagnosis) => diagnosis == newDiagnosis)) {
+
+      // Send push notification (implement your push notification logic here)
+      _sendPushNotification();
+
+      // Create in-app notification
+      await _createInAppNotification(newDiagnosis);
+    }
+  }
+
+  void _sendPushNotification() {
+    // Implement your push notification logic here
+    print('Sending push notification for recurring diagnosis');
+    // You would typically call your notification service here
+  }
+
+  Future<void> _createInAppNotification(String diagnosis) async {
+    try {
+      await _firestore
+          .collection('users')
+          .doc(_userId)
+          .collection('notifications')
+          .add({
+        'title': 'Early Warning Alert',
+        'body': 'Our system identified a recurring pattern in your recent logs that suggests you may be feeling overwhelmed. We\'re here to help.',
+        'type': 'recurring_diagnosis',
+        'diagnosis': diagnosis,
+        'timestamp': FieldValue.serverTimestamp(),
+        'read': false,
+      });
+    } catch (e) {
+      print('Error creating notification: $e');
     }
   }
 
@@ -147,6 +220,257 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<bool> _isValidText(String text) async {
+    if (text.trim().isEmpty) return false;
+
+    try {
+      String prompt = '''
+Analyze if the following text is meaningful, coherent, and not random gibberish. 
+Return ONLY "valid" if the text appears to be a real, coherent sentence or phrase in English that a person would actually say about their feelings or mental state.
+Return ONLY "invalid" if the text appears to be random characters, keyboard mash (like "hdjsjaih" or "fjkdjdjkdfjlkj"), repeated letters, or nonsensical input.
+
+Examples of valid text:
+- "I'm feeling anxious today"
+- "I had a great day at work"
+- "feeling sad and lonely"
+- "happy and excited"
+- "I'm tired and stressed"
+
+Examples of invalid text:
+- "hdjsjaih"
+- "fjkdjdjkdfjlkj"
+- "aaaaaaa"
+- "hjkhjkhjk"
+- "asdfghjkl"
+- "qwertyuiop"
+
+Text to analyze: "$text"
+
+Return just one word: either "valid" or "invalid".
+''';
+
+      final response = await http.post(
+        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'gpt-3.5-turbo',
+          'messages': [
+            {
+              'role': 'system',
+              'content': 'You are a text validator that determines if text is meaningful or random gibberish. Return only "valid" or "invalid".'
+            },
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.3,
+          'max_tokens': 10,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        var data = jsonDecode(response.body);
+        String result = data['choices'][0]['message']['content'].trim().toLowerCase();
+        return result == 'valid';
+      } else {
+        // Fallback to basic validation if API fails
+        return _basicTextValidation(text);
+      }
+    } catch (e) {
+      print('Error checking text validity: $e');
+      // Fallback to basic validation on error
+      return _basicTextValidation(text);
+    }
+  }
+
+// Keep basic validation as fallback
+  bool _basicTextValidation(String text) {
+    if (text.trim().isEmpty) return false;
+
+    String lowerText = text.toLowerCase();
+
+    // Check if text contains at least one vowel
+    bool hasVowel = RegExp(r'[aeiou]').hasMatch(lowerText);
+
+    // Check vowel ratio
+    int vowelCount = RegExp(r'[aeiou]').allMatches(lowerText).length;
+    int consonantCount = RegExp(r'[bcdfghjklmnpqrstvwxyz]').allMatches(lowerText).length;
+
+    if (vowelCount + consonantCount == 0) return false;
+
+    double vowelRatio = vowelCount / (vowelCount + consonantCount);
+    bool hasValidVowelRatio = vowelRatio >= 0.1 && vowelRatio <= 0.7;
+
+    // Check for repeated patterns
+    bool hasRepeatedPattern = RegExp(r'(.)\1{3,}').hasMatch(lowerText) ||
+        RegExp(r'(.{2,})\1{2,}').hasMatch(lowerText);
+
+    // Check for minimum word length
+    List<String> words = text.split(RegExp(r'\s+'));
+    bool hasValidWords = words.any((word) => word.length >= 2);
+
+    return hasVowel && hasValidVowelRatio && !hasRepeatedPattern && hasValidWords;
+  }
+
+
+  Future<bool> _checkForPositiveSentiment(String text) async {
+    try {
+      String prompt = '''
+Analyze the sentiment of the following text. Return ONLY "positive" if the text expresses happiness, joy, contentment, or other positive emotions. Otherwise, return "not_positive".
+
+Text to analyze: "$text"
+
+Return just one word: either "positive" or "not_positive".
+''';
+
+      final response = await http.post(
+        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode({
+          'model': 'gpt-3.5-turbo',
+          'messages': [
+            {'role': 'system', 'content': 'You are a sentiment analyzer. Return only "positive" or "not_positive".'},
+            {'role': 'user', 'content': prompt}
+          ],
+          'temperature': 0.3,
+          'max_tokens': 10,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        var data = jsonDecode(response.body);
+        String sentiment = data['choices'][0]['message']['content'].trim().toLowerCase();
+        return sentiment == 'positive';
+      }
+    } catch (e) {
+      print('Error checking sentiment: $e');
+    }
+    return false;
+  }
+
+  void _showPositivePopup() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: colorCream,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        title: const Text(
+          "Wonderful to hear!",
+          style: TextStyle(
+            color: colorGreenDark,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.sentiment_very_satisfied,
+              color: colorGreenDark,
+              size: 60,
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colorGreenDark.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                "No mental health conditions are flagged within our current system. Keep up the positive outlook!",
+                style: TextStyle(
+                  color: colorGreenDark,
+                  fontSize: 16,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(
+                backgroundColor: colorGreenDark,
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+              child: const Text(
+                "Got it!",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRandomTextError() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colorCream,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(30),
+        ),
+        title: const Icon(
+          Icons.error_outline,
+          color: Colors.red,
+          size: 50,
+        ),
+        content: const Text(
+          "The text you entered appears to be random or unintelligible. Please provide meaningful text about how you're feeling.",
+          style: TextStyle(
+            color: colorGreenDark,
+            fontSize: 16,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        actions: [
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.pop(context),
+              style: TextButton.styleFrom(
+                backgroundColor: colorGreenDark,
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),
+                ),
+              ),
+              child: const Text(
+                "OK",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+
   Future<void> _analyzeMood() async {
     if (_textController.text.isEmpty) {
       _showErrorDialog('Please enter or speak your mood first');
@@ -158,6 +482,29 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
+      // Check if text is valid using OpenAI
+      bool isValid = await _isValidText(_textController.text);
+
+      if (!isValid) {
+        _showRandomTextError();
+        setState(() {
+          _isAnalyzing = false;
+        });
+        return;
+      }
+
+      // First check for positive sentiment
+      bool isPositive = await _checkForPositiveSentiment(_textController.text);
+
+      if (isPositive) {
+        _showPositivePopup();
+        setState(() {
+          _isAnalyzing = false;
+        });
+        return;
+      }
+
+      // If not positive, proceed with normal diagnosis
       // Prepare the prompt for ChatGPT to get classification, goal, and activities
       String prompt = '''
 Based on the following text, analyze the user's mental state and provide:
@@ -230,6 +577,9 @@ Return ONLY the JSON, no other text.
               };
             }).toList();
           });
+
+          // Check for recurring diagnosis
+          await _checkForRecurringDiagnosis(classification);
 
           // Save to Firestore
           await _saveAnalysisToFirestore();

@@ -30,10 +30,10 @@ class _GardenPageState extends State<GardenPage> {
   String currentSeason = 'Spring';
 
   Map<String, int> seedsInventory = {
-    'Regular Seeds': 5,
-    'Rare Seeds': 2,
-    'Legendary Seeds': 1,
-    'Growth Accelerator': 1,
+    'Regular Seeds': 0,
+    'Rare Seeds': 0,
+    'Legendary Seeds': 0,
+    'Growth Accelerator': 0,
   };
 
   int points = 0;
