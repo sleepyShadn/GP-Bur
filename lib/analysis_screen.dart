@@ -2,10 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'home_screen.dart';
 import 'profile_screen.dart';
 import 'shop_screen.dart';
 import 'garden_screen.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
@@ -36,21 +42,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     'bulimia'
   ];
 
-  // Time range options
-  final List<String> _timeRanges = ['Day', 'Week', 'Month', 'Year'];
-  String _selectedTimeRange = 'Month';
+  // Date range selection
+  DateTime? _startDate;
+  DateTime? _endDate;
 
   // Data from Firebase
   int _totalPoints = 0;
   int _completedActivities = 0;
   int _totalGoals = 0;
+  int _totalAnalyses = 0;
 
   // Classification counts for histogram
   Map<String, int> _classificationCounts = {};
-  int _totalAnalyses = 0;
+  List<Map<String, dynamic>> _allAnalysesData = [];
 
   bool _isLoading = true;
   String _userId = '';
+
+  // Report generation state
+  bool _isGeneratingReport = false;
 
   @override
   void initState() {
@@ -92,33 +102,20 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     });
 
     try {
-      // Calculate date range based on selected time range
-      DateTime now = DateTime.now();
-      DateTime startDate;
-
-      switch (_selectedTimeRange) {
-        case 'Day':
-          startDate = DateTime(now.year, now.month, now.day);
-          break;
-        case 'Week':
-          startDate = now.subtract(const Duration(days: 7));
-          break;
-        case 'Month':
-          startDate = DateTime(now.year, now.month, 1);
-          break;
-        case 'Year':
-          startDate = DateTime(now.year, 1, 1);
-          break;
-        default:
-          startDate = DateTime(now.year, now.month, 1);
+      // Calculate date range if not set
+      if (_startDate == null || _endDate == null) {
+        DateTime now = DateTime.now();
+        _startDate = DateTime(now.year, now.month, 1); // First day of current month
+        _endDate = DateTime(now.year, now.month, now.day, 23, 59, 59); // Today
       }
 
-      // Get all analyses for the user within the time range
+      // Get all analyses for the user within the date range
       QuerySnapshot analysesSnapshot = await _firestore
           .collection('users')
           .doc(_userId)
           .collection('analyses')
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startDate))
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(_startDate!))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(_endDate!))
           .orderBy('timestamp', descending: true)
           .get();
 
@@ -130,10 +127,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
       int completedActs = 0;
       int goalsCount = 0;
+      List<Map<String, dynamic>> analysesData = [];
 
       // Process each analysis
       for (var doc in analysesSnapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
+
+        // Store full analysis data for report
+        analysesData.add({
+          'id': doc.id,
+          ...data,
+        });
 
         // Count classification
         String classification = data['classification'] ?? '';
@@ -160,6 +164,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         _completedActivities = completedActs;
         _totalGoals = goalsCount;
         _totalAnalyses = analysesSnapshot.docs.length;
+        _allAnalysesData = analysesData;
         _isLoading = false;
       });
 
@@ -171,13 +176,594 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
   }
 
-  void _onTimeRangeChanged(String? newRange) {
-    if (newRange != null) {
+  Future<void> _selectDateRange() async {
+    DateTime now = DateTime.now();
+
+    final DateTimeRange? picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(start: _startDate!, end: _endDate!)
+          : DateTimeRange(
+        start: DateTime(now.year, now.month, 1),
+        end: now,
+      ),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: colorGreenDark,
+              onPrimary: Colors.white,
+              surface: colorCream,
+              onSurface: colorGreenDark,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
       setState(() {
-        _selectedTimeRange = newRange;
+        _startDate = picked.start;
+        _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
       });
-      _loadAnalysesData();
+      await _loadAnalysesData();
     }
+  }
+
+  Future<void> _generatePDFReport() async {
+    if (_userId.isEmpty || _allAnalysesData.isEmpty) {
+      _showErrorDialog('No data available to generate report');
+      return;
+    }
+
+    setState(() {
+      _isGeneratingReport = true;
+    });
+
+    try {
+      // Create PDF document
+      final pdf = pw.Document();
+
+      // Add cover page
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return [
+              pw.Center(
+                child: pw.Column(
+                  mainAxisAlignment: pw.MainAxisAlignment.center,
+                  children: [
+                    pw.SizedBox(height: 100),
+                    pw.Text(
+                      'Mental Health Analytics Report',
+                      style: pw.TextStyle(
+                        fontSize: 32,
+                        fontWeight: pw.FontWeight.bold,
+                        color: PdfColors.green700,
+                      ),
+                    ),
+                    pw.SizedBox(height: 40),
+                    pw.Container(
+                      width: 100,
+                      height: 100,
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.green100,
+                        shape: pw.BoxShape.circle,
+                      ),
+                      child: pw.Center(
+                        child: pw.Icon(
+                          pw.IconData(0xe88a),
+                          size: 50,
+                          color: PdfColors.green700,
+                        ),
+                      ),
+                    ),
+                    pw.SizedBox(height: 40),
+                    pw.Text(
+                      'Generated for: ${_auth.currentUser?.email ?? 'User'}',
+                      style: const pw.TextStyle(fontSize: 14),
+                    ),
+                    pw.SizedBox(height: 20),
+                    pw.Text(
+                      'Date Range: ${_formatDate(_startDate)} - ${_formatDate(_endDate)}',
+                      style: const pw.TextStyle(fontSize: 14),
+                    ),
+                    pw.SizedBox(height: 20),
+                    pw.Text(
+                      'Generated on: ${_formatDate(DateTime.now())}',
+                      style: const pw.TextStyle(fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
+            ];
+          },
+        ),
+      );
+
+      // Add summary page
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            return [
+              pw.Text(
+                'Summary Statistics',
+                style: pw.TextStyle(
+                  fontSize: 24,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.green700,
+                ),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: _buildSummaryBox(
+                      title: 'Total Points',
+                      value: '$_totalPoints',
+                      icon: pw.IconData(0xe838),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    child: _buildSummaryBox(
+                      title: 'Total Analyses',
+                      value: '$_totalAnalyses',
+                      icon: pw.IconData(0xe80b),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 10),
+              pw.Row(
+                children: [
+                  pw.Expanded(
+                    child: _buildSummaryBox(
+                      title: 'Completed Activities',
+                      value: '$_completedActivities',
+                      icon: pw.IconData(0xe86c),
+                    ),
+                  ),
+                  pw.SizedBox(width: 10),
+                  pw.Expanded(
+                    child: _buildSummaryBox(
+                      title: 'Total Goals',
+                      value: '$_totalGoals',
+                      icon: pw.IconData(0xe87d),
+                    ),
+                  ),
+                ],
+              ),
+            ];
+          },
+        ),
+      );
+
+      // Add classification distribution page
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            List<pw.Widget> items = [];
+
+            items.add(pw.Text(
+              'Mental Health Classification Distribution',
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.green700,
+              ),
+            ));
+
+            items.add(pw.SizedBox(height: 20));
+
+            // Create table for classifications
+            items.add(
+              pw.Table.fromTextArray(
+                headers: ['Classification', 'Count', 'Percentage'],
+                data: _classifications.map((classification) {
+                  int count = _classificationCounts[classification] ?? 0;
+                  double percentage = _totalAnalyses > 0
+                      ? (count / _totalAnalyses * 100)
+                      : 0;
+                  String displayName = classification.split(' ').map((word) =>
+                  word[0].toUpperCase() + word.substring(1)
+                  ).join(' ');
+
+                  return [
+                    displayName,
+                    count.toString(),
+                    '${percentage.toStringAsFixed(1)}%',
+                  ];
+                }).toList(),
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+                headerDecoration: pw.BoxDecoration(
+                  color: PdfColors.green700,
+                ),
+                cellStyle: const pw.TextStyle(fontSize: 10),
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+              ),
+            );
+
+            items.add(pw.SizedBox(height: 20));
+
+            // Add total row
+            items.add(
+              pw.Container(
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.green100,
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Total Analyses:',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(
+                      '$_totalAnalyses',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+            return items;
+          },
+        ),
+      );
+
+      // Add detailed analyses pages
+      if (_allAnalysesData.isNotEmpty) {
+        pdf.addPage(
+          pw.MultiPage(
+            pageFormat: PdfPageFormat.a4,
+            build: (pw.Context context) {
+              List<pw.Widget> items = [];
+
+              items.add(pw.Text(
+                'Detailed Analysis History',
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.green700,
+                ),
+              ));
+
+              items.add(pw.SizedBox(height: 20));
+
+              for (var analysis in _allAnalysesData) {
+                items.add(_buildAnalysisDetailItem(analysis));
+                items.add(pw.SizedBox(height: 15));
+                items.add(pw.Divider());
+                items.add(pw.SizedBox(height: 10));
+              }
+
+              return items;
+            },
+          ),
+        );
+      }
+
+      // Add activities completion history
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          build: (pw.Context context) {
+            List<pw.Widget> items = [];
+
+            items.add(pw.Text(
+              'Activities Completion Summary',
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.green700,
+              ),
+            ));
+
+            items.add(pw.SizedBox(height: 20));
+
+            // Collect all activities
+            Map<String, int> activityCompletionCount = {};
+            int totalPossibleCompletions = 0;
+
+            for (var analysis in _allAnalysesData) {
+              List<dynamic> activities = analysis['activities'] ?? [];
+              for (var activity in activities) {
+                String title = activity['title'] ?? '';
+                if (title.isNotEmpty) {
+                  activityCompletionCount[title] = (activityCompletionCount[title] ?? 0) +
+                      (activity['completed'] == true ? 1 : 0);
+                  totalPossibleCompletions++;
+                }
+              }
+            }
+
+            // Create activities table
+            items.add(
+              pw.Table.fromTextArray(
+                headers: ['Activity', 'Times Completed'],
+                data: activityCompletionCount.entries.map((entry) {
+                  return [entry.key, entry.value.toString()];
+                }).toList(),
+                headerStyle: pw.TextStyle(
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+                headerDecoration: pw.BoxDecoration(
+                  color: PdfColors.green700,
+                ),
+                cellStyle: const pw.TextStyle(fontSize: 9),
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+              ),
+            );
+
+            items.add(pw.SizedBox(height: 20));
+
+            // Add total completions
+            items.add(
+              pw.Container(
+                padding: const pw.EdgeInsets.all(8),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.green100,
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Row(
+                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                  children: [
+                    pw.Text(
+                      'Total Activity Completions:',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.Text(
+                      '$totalPossibleCompletions',
+                      style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+            );
+
+            return items;
+          },
+        ),
+      );
+
+      // Save PDF to device
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/mental_health_report_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      setState(() {
+        _isGeneratingReport = false;
+      });
+
+      // Show options to share or open
+      _showPDFOptions(file);
+
+    } catch (e) {
+      setState(() {
+        _isGeneratingReport = false;
+      });
+      _showErrorDialog('Error generating PDF: $e');
+    }
+  }
+
+  pw.Widget _buildSummaryBox({
+    required String title,
+    required String value,
+    required pw.IconData icon,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(16),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.green50,
+        borderRadius: pw.BorderRadius.circular(8),
+        border: pw.Border.all(color: PdfColors.green200),
+      ),
+      child: pw.Column(
+        children: [
+          pw.Icon(icon, color: PdfColors.green700),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 20,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.green700,
+            ),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+              fontSize: 10,
+              color: PdfColors.green600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildAnalysisDetailItem(Map<String, dynamic> analysis) {
+    Timestamp? timestamp = analysis['timestamp'];
+    String date = timestamp != null
+        ? _formatDate(timestamp.toDate())
+        : 'Unknown date';
+
+    String classification = analysis['classification'] ?? 'Unknown';
+    String goal = analysis['goal'] ?? 'No goal';
+    String text = analysis['text'] ?? '';
+    List<dynamic> activities = analysis['activities'] ?? [];
+
+    int completedActivities = activities.where((a) => a['completed'] == true).length;
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.all(12),
+      decoration: pw.BoxDecoration(
+        color: PdfColors.grey50,
+        borderRadius: pw.BorderRadius.circular(4),
+        border: pw.Border.all(color: PdfColors.grey300),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Date: $date',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+              ),
+              pw.Text(
+                classification.toUpperCase(),
+                style: pw.TextStyle(
+                  color: PdfColors.green700,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Original text: "$text"',
+            style:  pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 10),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Goal: $goal',
+            style:  pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(
+            'Activities: $completedActivities/${activities.length} completed',
+            style: const pw.TextStyle(fontSize: 10),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPDFOptions(File file) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colorCream,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colorGreenDark.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Report Generated Successfully',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: colorGreenDark,
+                ),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: Icon(Icons.share, color: colorGreenDark),
+                title: const Text('Share Report', style: TextStyle(color: colorGreenDark)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Share.shareXFiles([XFile(file.path)],
+                    text: 'Mental Health Analytics Report',
+                  );
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.picture_as_pdf, color: colorGreenDark),
+                title: const Text('Open PDF', style: TextStyle(color: colorGreenDark)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _openPDF(file);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.close, color: Colors.red),
+                title: const Text('Close', style: TextStyle(color: Colors.red)),
+                onTap: () => Navigator.pop(context),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openPDF(File file) async {
+    try {
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => await file.readAsBytes(),
+      );
+    } catch (e) {
+      _showErrorDialog('Error opening PDF: $e');
+    }
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'Not set';
+    return '${date.day}/${date.month}/${date.year}';
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: colorCream,
+        title: const Text('Error', style: TextStyle(color: colorGreenDark)),
+        content: Text(message, style: const TextStyle(color: colorGreenDark)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK', style: TextStyle(color: colorGreenDark)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _getMaxY() {
+    int max = 0;
+    _classificationCounts.forEach((key, value) {
+      if (value > max) max = value;
+    });
+    return max + 1;
+  }
+
+  double _getInterval() {
+    int max = _getMaxY();
+    if (max <= 5) return 1;
+    if (max <= 10) return 2;
+    if (max <= 20) return 5;
+    return 10;
   }
 
   void _onItemTapped(int index) {
@@ -211,28 +797,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           break;
       }
     }
-  }
-
-  void _generateReport() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Report Generated'),
-        content: Text(
-            'Analytics report for $_selectedTimeRange has been successfully generated and saved to your device\n\n'
-                'Total Analyses: $_totalAnalyses\n'
-                'Completed Activities: $_completedActivities\n'
-                'Total Goals: $_totalGoals\n'
-                'Total Points: $_totalPoints'
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -286,55 +850,88 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 ),
                 const SizedBox(height: 16),
 
-                // Time Range Selector
+                // Date Range Selector
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.calendar_today, color: colorGreenDark, size: 16),
-                      const SizedBox(width: 8),
-                      Text(
-                        "Time Range:",
-                        style: TextStyle(
-                          color: colorGreenDark,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          decoration: BoxDecoration(
-                            color: colorGreenLight.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(12),
+                      Row(
+                        children: [
+                          Icon(Icons.date_range, color: colorGreenDark, size: 18),
+                          const SizedBox(width: 8),
+                          Text(
+                            "Date Range",
+                            style: TextStyle(
+                              color: colorGreenDark,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
                           ),
-                          child: DropdownButton<String>(
-                            value: _selectedTimeRange,
-                            isExpanded: true,
-                            underline: const SizedBox(),
-                            icon: Icon(Icons.arrow_drop_down, color: colorGreenDark),
-                            items: _timeRanges.map((String range) {
-                              return DropdownMenuItem<String>(
-                                value: range,
-                                child: Text(
-                                  range,
-                                  style: TextStyle(color: colorGreenDark),
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: _onTimeRangeChanged,
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: colorGreenLight.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                _formatDate(_startDate),
+                                style: TextStyle(color: colorGreenDark),
+                              ),
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Text('to', style: TextStyle(color: colorGreenDark)),
+                          ),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: colorGreenLight.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                _formatDate(_endDate),
+                                style: TextStyle(color: colorGreenDark),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _selectDateRange,
+                          icon: const Icon(Icons.edit_calendar, color: Colors.white, size: 16),
+                          label: const Text(
+                            "Select Date Range",
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: colorGreenDark,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
                 // Summary Cards
                 Row(
@@ -430,7 +1027,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   child: _classificationCounts.isEmpty
                       ? Center(
                     child: Text(
-                      "No data available for $_selectedTimeRange",
+                      "No data available for selected range",
                       style: TextStyle(color: colorGreenDark),
                     ),
                   )
@@ -562,7 +1159,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Classification Details ($_selectedTimeRange)",
+                        "Classification Details",
                         style: TextStyle(
                           color: colorGreenDark,
                           fontWeight: FontWeight.bold,
@@ -669,14 +1266,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 // Generate Report Button
                 SizedBox(
                   width: double.infinity,
-                  height: 50,
+                  height: 55,
                   child: ElevatedButton.icon(
-                    onPressed: _generateReport,
-                    icon: const Icon(Icons.download,
+                    onPressed: _isGeneratingReport || _allAnalysesData.isEmpty
+                        ? null
+                        : _generatePDFReport,
+                    icon: _isGeneratingReport
+                        ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                        : const Icon(Icons.picture_as_pdf,
                         color: Colors.white, size: 20),
-                    label: const Text(
-                      "Generate Report",
-                      style: TextStyle(
+                    label: Text(
+                      _isGeneratingReport
+                          ? "Generating Report..."
+                          : "Download PDF Report",
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -713,22 +1323,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
-  }
-
-  int _getMaxY() {
-    int max = 0;
-    _classificationCounts.forEach((key, value) {
-      if (value > max) max = value;
-    });
-    return max + 1;
-  }
-
-  double _getInterval() {
-    int max = _getMaxY();
-    if (max <= 5) return 1;
-    if (max <= 10) return 2;
-    if (max <= 20) return 5;
-    return 10;
   }
 
   Widget _buildSummaryCard({

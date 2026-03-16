@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:http/http.dart' as http;
@@ -5,10 +6,12 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'analysis_screen.dart';
+import 'notification_service.dart';
 import 'profile_screen.dart';
 import 'shop_screen.dart';
 import 'garden_screen.dart';
 import 'all_goals_and_activities_page.dart';
+import 'dart:math';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +29,8 @@ class _HomeScreenState extends State<HomeScreen> {
   // OpenAI API Key
   final String _apiKey = "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";
 
+  final NotificationService _notificationService = NotificationService();
+
   late stt.SpeechToText _speech;
   bool _isListening = false;
   final TextEditingController _textController = TextEditingController();
@@ -37,6 +42,13 @@ class _HomeScreenState extends State<HomeScreen> {
   String _currentGoal = '';
   List<Map<String, dynamic>> _currentActivities = [];
   bool _isAnalyzing = false;
+
+  // New fields for daily tracking and expiry
+  DateTime? _goalStartDate;
+  int? _goalDurationDays; // Number of days suggested by AI (5-6 days)
+  DateTime? _goalExpiryDate;
+  bool _isGoalCompleted = false;
+  Map<String, dynamic> _dailyActivitiesStatus = {}; // Track daily completions
 
   // Available classifications
   final List<String> _classifications = [
@@ -56,6 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _userPoints = 0;
   String _currentAnalysisId = '';
 
+  // Analysis daily limit
+  int _todayAnalysisCount = 0;
+
   // For tracking consecutive diagnoses
   List<String> _recentDiagnoses = [];
 
@@ -65,6 +80,41 @@ class _HomeScreenState extends State<HomeScreen> {
     _speech = stt.SpeechToText();
     _getCurrentUser();
     _loadLatestAnalysis();
+    _checkTodayAnalysisCount();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initNotifications();
+    });
+  }
+
+  Future<void> _checkTodayAnalysisCount() async {
+    if (_userId.isEmpty) return;
+
+    try {
+      DateTime now = DateTime.now();
+      DateTime startOfDay = DateTime(now.year, now.month, now.day);
+      DateTime endOfDay = startOfDay.add(const Duration(days: 1));
+
+      QuerySnapshot todayAnalyses = await _firestore
+          .collection('users')
+          .doc(_userId)
+          .collection('analyses')
+          .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+          .where('timestamp', isLessThan: endOfDay)
+          .get();
+
+      setState(() {
+        _todayAnalysisCount = todayAnalyses.docs.length;
+      });
+    } catch (e) {
+      print('Error checking today analysis count: $e');
+    }
+  }
+
+  Future<void> _initNotifications() async {
+    if (_userId.isNotEmpty) {
+      await _notificationService.initNotifications(_userId);
+    }
   }
 
   Future<void> _getCurrentUser() async {
@@ -75,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       _loadUserPoints();
       _loadRecentDiagnoses();
+      _checkTodayAnalysisCount();
     }
   }
 
@@ -119,28 +170,22 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _checkForRecurringDiagnosis(String newDiagnosis) async {
     if (_userId.isEmpty || newDiagnosis.isEmpty) return;
 
-    // Update recent diagnoses list
     _recentDiagnoses.insert(0, newDiagnosis);
     if (_recentDiagnoses.length > 3) {
       _recentDiagnoses = _recentDiagnoses.sublist(0, 3);
     }
 
-    // Check if same diagnosis appears 3 times consecutively
     if (_recentDiagnoses.length == 3 &&
         _recentDiagnoses.every((diagnosis) => diagnosis == newDiagnosis)) {
 
-      // Send push notification (implement your push notification logic here)
-      _sendPushNotification();
+      await _notificationService.showLocalNotificationOnly(
+        title: 'Checking in',
+        body: 'It looks like it\'s been a heavy few days. When you have a moment, let\'s take a breath and check in together.',
+        payload: 'recurring_diagnosis',
+      );
 
-      // Create in-app notification
-      await _createInAppNotification(newDiagnosis);
+      await _createInAppNotification(_recentDiagnoses.first);
     }
-  }
-
-  void _sendPushNotification() {
-    // Implement your push notification logic here
-    print('Sending push notification for recurring diagnosis');
-    // You would typically call your notification service here
   }
 
   Future<void> _createInAppNotification(String diagnosis) async {
@@ -176,10 +221,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (analysisSnapshot.docs.isNotEmpty) {
         var data = analysisSnapshot.docs.first.data() as Map<String, dynamic>;
+
+        // Load goal dates
+        Timestamp? startDateTimestamp = data['goalStartDate'];
+        DateTime? loadedStartDate = startDateTimestamp?.toDate();
+        int? loadedDuration = data['goalDurationDays'];
+        bool loadedGoalCompleted = data['isGoalCompleted'] ?? false;
+
         setState(() {
           _currentAnalysisId = analysisSnapshot.docs.first.id;
           _currentClassification = data['classification'] ?? '';
           _currentGoal = data['goal'] ?? '';
+          _goalStartDate = loadedStartDate;
+          _goalDurationDays = loadedDuration;
+
+          if (_goalStartDate != null && _goalDurationDays != null) {
+            _goalExpiryDate = _goalStartDate!.add(Duration(days: _goalDurationDays!));
+            _isGoalCompleted = loadedGoalCompleted || DateTime.now().isAfter(_goalExpiryDate!);
+          }
 
           // Load activities from Firestore
           List<dynamic> activitiesData = data['activities'] ?? [];
@@ -189,12 +248,76 @@ class _HomeScreenState extends State<HomeScreen> {
               'points': activity['points'],
               'completed': activity['completed'] ?? false,
               'activityId': activity['activityId'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+              'lastCompletedDate': activity['lastCompletedDate'] != null
+                  ? (activity['lastCompletedDate'] as Timestamp).toDate()
+                  : null,
+              'dailyHistory': activity['dailyHistory'] ?? {},
             };
           }).toList();
+
+          // Check if activities need to be reset for a new day
+          _checkAndResetDailyActivities();
         });
       }
     } catch (e) {
       print('Error loading analysis: $e');
+    }
+  }
+
+  void _checkAndResetDailyActivities() {
+    if (_goalStartDate == null || _goalExpiryDate == null) return;
+
+    DateTime now = DateTime.now();
+
+    // If goal is expired, mark as completed
+    if (now.isAfter(_goalExpiryDate!) && !_isGoalCompleted) {
+      setState(() {
+        _isGoalCompleted = true;
+      });
+      _updateGoalCompletionStatus();
+      return;
+    }
+
+    // Don't reset if goal is completed
+    if (_isGoalCompleted) return;
+
+    // Check if we need to reset activities for a new day
+    bool needsReset = false;
+    for (var activity in _currentActivities) {
+      DateTime? lastCompleted = activity['lastCompletedDate'];
+      if (lastCompleted != null) {
+        if (lastCompleted.day != now.day ||
+            lastCompleted.month != now.month ||
+            lastCompleted.year != now.year) {
+          // This activity was completed on a previous day, reset it
+          needsReset = true;
+          break;
+        }
+      }
+    }
+
+    if (needsReset) {
+      for (var activity in _currentActivities) {
+        activity['completed'] = false;
+        // Keep the lastCompletedDate for history
+      }
+    }
+  }
+
+  Future<void> _updateGoalCompletionStatus() async {
+    if (_userId.isEmpty || _currentAnalysisId.isEmpty) return;
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(_userId)
+          .collection('analyses')
+          .doc(_currentAnalysisId)
+          .update({
+        'isGoalCompleted': _isGoalCompleted,
+      });
+    } catch (e) {
+      print('Error updating goal completion: $e');
     }
   }
 
@@ -218,6 +341,30 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _isListening = false);
       _speech.stop();
     }
+  }
+
+  void _showDailyLimitMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: const Text(
+            'You have reached the daily limit for symptom entries (2 per day). Please return tomorrow to provide further updates.',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+            ),
+          ),
+        ),
+        backgroundColor: colorGreenDark,
+        duration: const Duration(seconds: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(15),
+        ),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(20),
+      ),
+    );
   }
 
   Future<bool> _isValidText(String text) async {
@@ -274,26 +421,21 @@ Return just one word: either "valid" or "invalid".
         String result = data['choices'][0]['message']['content'].trim().toLowerCase();
         return result == 'valid';
       } else {
-        // Fallback to basic validation if API fails
         return _basicTextValidation(text);
       }
     } catch (e) {
       print('Error checking text validity: $e');
-      // Fallback to basic validation on error
       return _basicTextValidation(text);
     }
   }
 
-// Keep basic validation as fallback
   bool _basicTextValidation(String text) {
     if (text.trim().isEmpty) return false;
 
     String lowerText = text.toLowerCase();
 
-    // Check if text contains at least one vowel
     bool hasVowel = RegExp(r'[aeiou]').hasMatch(lowerText);
 
-    // Check vowel ratio
     int vowelCount = RegExp(r'[aeiou]').allMatches(lowerText).length;
     int consonantCount = RegExp(r'[bcdfghjklmnpqrstvwxyz]').allMatches(lowerText).length;
 
@@ -302,17 +444,14 @@ Return just one word: either "valid" or "invalid".
     double vowelRatio = vowelCount / (vowelCount + consonantCount);
     bool hasValidVowelRatio = vowelRatio >= 0.1 && vowelRatio <= 0.7;
 
-    // Check for repeated patterns
     bool hasRepeatedPattern = RegExp(r'(.)\1{3,}').hasMatch(lowerText) ||
         RegExp(r'(.{2,})\1{2,}').hasMatch(lowerText);
 
-    // Check for minimum word length
     List<String> words = text.split(RegExp(r'\s+'));
     bool hasValidWords = words.any((word) => word.length >= 2);
 
     return hasVowel && hasValidVowelRatio && !hasRepeatedPattern && hasValidWords;
   }
-
 
   Future<bool> _checkForPositiveSentiment(String text) async {
     try {
@@ -470,10 +609,15 @@ Return just one word: either "positive" or "not_positive".
     );
   }
 
-
   Future<void> _analyzeMood() async {
     if (_textController.text.isEmpty) {
       _showErrorDialog('Please enter or speak your mood first');
+      return;
+    }
+
+    // Check daily limit first
+    if (_todayAnalysisCount >= 2) {
+      _showDailyLimitMessage();
       return;
     }
 
@@ -482,7 +626,6 @@ Return just one word: either "positive" or "not_positive".
     });
 
     try {
-      // Check if text is valid using OpenAI
       bool isValid = await _isValidText(_textController.text);
 
       if (!isValid) {
@@ -493,7 +636,6 @@ Return just one word: either "positive" or "not_positive".
         return;
       }
 
-      // First check for positive sentiment
       bool isPositive = await _checkForPositiveSentiment(_textController.text);
 
       if (isPositive) {
@@ -504,13 +646,13 @@ Return just one word: either "positive" or "not_positive".
         return;
       }
 
-      // If not positive, proceed with normal diagnosis
-      // Prepare the prompt for ChatGPT to get classification, goal, and activities
+      // Updated prompt to include duration suggestion
       String prompt = '''
 Based on the following text, analyze the user's mental state and provide:
 1. Classification: Choose exactly ONE from these categories: ${_classifications.join(', ')}
 2. Goal: Create a personalized goal based on the classification (one sentence)
-3. Activities: Generate 4 specific, actionable activities that help achieve the goal. Each activity should be a short, clear task.
+3. Duration: Suggest a duration for completing this goal. Choose either 5 or 6 days or any number of appropriate daysto based on the severity and complexity of the condition.
+4. Activities: Generate 4 specific, actionable activities that help achieve the goal. Each activity should be a short, clear task.
 
 Text to analyze: "${_textController.text}"
 
@@ -518,6 +660,7 @@ Return the response in this exact JSON format:
 {
   "classification": "category name",
   "goal": "personalized goal sentence",
+  "duration": 5 or 6,
   "activities": [
     {"title": "activity 1 description", "points": 5},
     {"title": "activity 2 description", "points": 5},
@@ -529,7 +672,6 @@ Return the response in this exact JSON format:
 Return ONLY the JSON, no other text.
 ''';
 
-      // Call OpenAI API
       final response = await http.post(
         Uri.parse('https://api.openai.com/v1/chat/completions'),
         headers: {
@@ -554,34 +696,40 @@ Return ONLY the JSON, no other text.
         var data = jsonDecode(response.body);
         String content = data['choices'][0]['message']['content'].trim();
 
-        // Parse JSON response
         Map<String, dynamic> result = jsonDecode(content);
         String classification = result['classification'].toString().toLowerCase();
 
-        // Validate classification
         if (_classifications.contains(classification)) {
           String goal = result['goal'];
+          int duration = result['duration'] ?? 5; // Default to 5 if not provided
           List<dynamic> activitiesData = result['activities'];
+
+          DateTime now = DateTime.now();
+          DateTime startDate = now;
+          DateTime expiryDate = startDate.add(Duration(days: duration));
 
           setState(() {
             _currentClassification = classification;
             _currentGoal = goal;
+            _goalStartDate = startDate;
+            _goalDurationDays = duration;
+            _goalExpiryDate = expiryDate;
+            _isGoalCompleted = false;
+            _todayAnalysisCount++; // Increment the counter
 
-            // Create activities with default completed = false
             _currentActivities = activitiesData.map((activity) {
               return {
                 'title': activity['title'],
                 'points': activity['points'] ?? 5,
                 'completed': false,
                 'activityId': DateTime.now().millisecondsSinceEpoch.toString() + activity['title'],
+                'lastCompletedDate': null,
+                'dailyHistory': {},
               };
             }).toList();
           });
 
-          // Check for recurring diagnosis
           await _checkForRecurringDiagnosis(classification);
-
-          // Save to Firestore
           await _saveAnalysisToFirestore();
         } else {
           _showErrorDialog('Could not classify your mood. Please try again.');
@@ -610,11 +758,17 @@ Return ONLY the JSON, no other text.
         'text': _textController.text,
         'classification': _currentClassification,
         'goal': _currentGoal,
+        'goalStartDate': _goalStartDate,
+        'goalDurationDays': _goalDurationDays,
+        'goalExpiryDate': _goalExpiryDate,
+        'isGoalCompleted': _isGoalCompleted,
         'activities': _currentActivities.map((activity) => {
           'title': activity['title'],
           'points': activity['points'],
           'completed': activity['completed'],
           'activityId': activity['activityId'],
+          'lastCompletedDate': activity['lastCompletedDate'],
+          'dailyHistory': activity['dailyHistory'],
         }).toList(),
       };
 
@@ -636,26 +790,35 @@ Return ONLY the JSON, no other text.
   }
 
   Future<void> _toggleActivity(int index) async {
-    if (_userId.isEmpty || _currentAnalysisId.isEmpty) return;
+    if (_userId.isEmpty || _currentAnalysisId.isEmpty || _isGoalCompleted) return;
+
+    // Check if already completed today
+    if (_currentActivities[index]['completed']) return;
+
+    DateTime now = DateTime.now();
 
     setState(() {
-      _currentActivities[index]['completed'] = !_currentActivities[index]['completed'];
+      _currentActivities[index]['completed'] = true;
+      _currentActivities[index]['lastCompletedDate'] = now;
+
+      // Store in daily history
+      String todayKey = '${now.year}-${now.month}-${now.day}';
+      if (_currentActivities[index]['dailyHistory'] == null) {
+        _currentActivities[index]['dailyHistory'] = {};
+      }
+      _currentActivities[index]['dailyHistory'][todayKey] = true;
+
+      // Add points
+      int pointsToAdd = _currentActivities[index]['points'];
+      _userPoints += pointsToAdd;
     });
 
-    // Update points if activity is completed
-    if (_currentActivities[index]['completed']) {
-      int pointsToAdd = _currentActivities[index]['points'];
-      setState(() {
-        _userPoints += pointsToAdd;
-      });
+    // Update user points in Firestore
+    await _firestore.collection('users').doc(_userId).update({
+      'points': FieldValue.increment(_currentActivities[index]['points']),
+    });
 
-      // Update user points in Firestore
-      await _firestore.collection('users').doc(_userId).update({
-        'points': FieldValue.increment(pointsToAdd),
-      });
-    }
-
-    // Update the specific analysis document with activity completion status
+    // Update the specific analysis document
     try {
       await _firestore
           .collection('users')
@@ -668,6 +831,8 @@ Return ONLY the JSON, no other text.
           'points': activity['points'],
           'completed': activity['completed'],
           'activityId': activity['activityId'],
+          'lastCompletedDate': activity['lastCompletedDate'],
+          'dailyHistory': activity['dailyHistory'],
         }).toList(),
       });
     } catch (e) {
@@ -733,6 +898,20 @@ Return ONLY the JSON, no other text.
     return welcomeMessages[_currentClassification] ?? "Welcome back!";
   }
 
+  String _getGoalStatusMessage() {
+    if (_isGoalCompleted) {
+      return "✓ Goal Completed - Great job!";
+    } else if (_goalExpiryDate != null) {
+      int daysLeft = _goalExpiryDate!.difference(DateTime.now()).inDays;
+      if (daysLeft < 0) {
+        return "✓ Goal Period Ended - Well done!";
+      } else {
+        return "$daysLeft days remaining in goal period";
+      }
+    }
+    return "";
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -761,15 +940,29 @@ Return ONLY the JSON, no other text.
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Text(
-                        _getWelcomeMessage(),
-                        style: const TextStyle(
-                          color: colorGreenDark,
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _getWelcomeMessage(),
+                            style: const TextStyle(
+                              color: colorGreenDark,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (_todayAnalysisCount > 0)
+                            Text(
+                              "Today's entries: $_todayAnalysisCount/2",
+                              style: const TextStyle(
+                                color: colorGreenDark,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                     Container(
@@ -883,9 +1076,9 @@ Return ONLY the JSON, no other text.
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: _isAnalyzing ? null : _analyzeMood,
+                              onPressed: (_isAnalyzing || _todayAnalysisCount >= 2) ? null : _analyzeMood,
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: colorGreenDark,
+                                backgroundColor: _todayAnalysisCount >= 2 ? Colors.grey : colorGreenDark,
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(25),
@@ -901,9 +1094,9 @@ Return ONLY the JSON, no other text.
                                   color: Colors.white,
                                 ),
                               )
-                                  : const Text(
-                                "Analyze",
-                                style: TextStyle(
+                                  : Text(
+                                _todayAnalysisCount >= 2 ? "Daily Limit Reached" : "Analyze",
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -952,6 +1145,32 @@ Return ONLY the JSON, no other text.
                   ),
                   const SizedBox(height: 20),
                 ],
+                // Goal status
+                if (_goalDurationDays != null)
+                  Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: _isGoalCompleted
+                          ? colorGreenDark.withOpacity(0.3)
+                          : colorGreenLight.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: _isGoalCompleted ? colorGreenDark : colorGreenLight,
+                        width: 1,
+                      ),
+                    ),
+                    child: Text(
+                      _getGoalStatusMessage(),
+                      style: TextStyle(
+                        color: _isGoalCompleted ? colorGreenDark : colorGreenDark,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
                 // Goal card
                 if (_currentGoal.isNotEmpty)
                   _buildCard(
@@ -964,7 +1183,9 @@ Return ONLY the JSON, no other text.
                 if (_currentActivities.isNotEmpty)
                   _buildCard(
                     icon: Icons.star,
-                    title: "SUGGESTED ACTIVITIES (5 points each)",
+                    title: _isGoalCompleted
+                        ? "COMPLETED ACTIVITIES"
+                        : "TODAY'S ACTIVITIES (5 points each)",
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1031,6 +1252,20 @@ Return ONLY the JSON, no other text.
   }
 
   Widget _buildActivityItem(String text, int index) {
+    bool isCompletedToday = _currentActivities[index]['completed'] ?? false;
+    DateTime? lastCompleted = _currentActivities[index]['lastCompletedDate'];
+    bool canCompleteToday = !isCompletedToday && !_isGoalCompleted;
+
+    // Check if it was completed on a previous day
+    if (!isCompletedToday && lastCompleted != null) {
+      DateTime now = DateTime.now();
+      if (lastCompleted.day != now.day ||
+          lastCompleted.month != now.month ||
+          lastCompleted.year != now.year) {
+        canCompleteToday = true;
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -1040,8 +1275,8 @@ Return ONLY the JSON, no other text.
       child: Row(
         children: [
           Checkbox(
-            value: _currentActivities[index]['completed'],
-            onChanged: (value) => _toggleActivity(index),
+            value: isCompletedToday,
+            onChanged: canCompleteToday ? (value) => _toggleActivity(index) : null,
             activeColor: colorGreenDark,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(6),
@@ -1051,9 +1286,9 @@ Return ONLY the JSON, no other text.
             child: Text(
               text,
               style: TextStyle(
-                color: colorGreenDark,
+                color: isCompletedToday ? Colors.grey : colorGreenDark,
                 fontSize: 13,
-                decoration: _currentActivities[index]['completed']
+                decoration: isCompletedToday
                     ? TextDecoration.lineThrough
                     : null,
                 decorationColor: colorGreenDark,
