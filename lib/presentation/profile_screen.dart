@@ -1,10 +1,14 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+// ========== lib/presentation/profile_screen.dart ==========
+import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'home_screen.dart';
+import 'package:flutter/material.dart';
+import '../../domain/profile_logic.dart';
+import '../../data/profile_data.dart';
+
 import 'analysis_screen.dart';
-import 'shop_screen.dart';
 import 'garden_screen.dart';
+import 'home_screen.dart';
+import 'login_screen.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -14,17 +18,11 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  static const Color colorPinkish = Color(0xFFE7CCCC);
-  static const Color colorCream = Color(0xFFEDE8DC);
-  static const Color colorGreenDark = Color(0xff7f9461);
-  static const Color colorGreenLight = Color(0xFFC1CFA1);
-
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final ProfileLogic _logic = ProfileLogic();
+  final ProfileData _data = ProfileData();
 
   int _selectedIndex = 4;
 
-  // User data from Firebase
   String uid = "";
   String userName = "";
   String userEmail = "";
@@ -35,15 +33,13 @@ class _ProfilePageState extends State<ProfilePage> {
   int totalPoints = 0;
   int userRank = 0;
   int totalUsers = 0;
-  String createdAt = "";
+  Timestamp? createdAt;
 
-  // Seeds inventory data
   Map<String, dynamic> seedsInventory = {};
 
   bool isLoading = true;
   bool isEditing = false;
 
-  // Validation errors
   String? _nameError;
   String? _emailError;
   String? _birthDateError;
@@ -51,14 +47,12 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _heightError;
   String? _genderError;
 
-  // Controllers for editable fields
   late TextEditingController _nameController;
   late TextEditingController _emailController;
   late TextEditingController _birthDateController;
   late TextEditingController _weightController;
   late TextEditingController _heightController;
 
-  // Gender options
   final List<String> genderOptions = ["Male", "Female"];
 
   @override
@@ -87,398 +81,108 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _loadUserData() async {
-    setState(() {
-      isLoading = true;
-    });
-
+    setState(() => isLoading = true);
     try {
-      User? currentUser = _auth.currentUser;
-
-      if (currentUser != null) {
-        uid = currentUser.uid;
-        userEmail = currentUser.email ?? "";
-
-        // Get user data from users collection
-        DocumentSnapshot userDoc = await _firestore.collection('users').doc(uid).get();
-
-        if (userDoc.exists) {
-          Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-
-          setState(() {
-            // Map all fields from the database exactly as they are
-            userName = userData['name'] ?? "";
-            userEmail = userData['email'] ?? userEmail;
-
-            // Handle createdAt
-            if (userData['createdAt'] != null) {
-              if (userData['createdAt'] is Timestamp) {
-                Timestamp timestamp = userData['createdAt'];
-                createdAt = _formatTimestamp(timestamp);
-              } else {
-                createdAt = userData['createdAt'].toString();
-              }
-            }
-
-            // Handle dateOfBirth
-            if (userData['dateOfBirth'] != null) {
-              String dateStr = userData['dateOfBirth'].toString();
-              try {
-                birthDate = DateTime.parse(dateStr);
-              } catch (e) {
-                birthDate = DateTime.now();
-              }
-            }
-
-            weight = (userData['weight'] is int)
-                ? (userData['weight'] as int).toDouble()
-                : (userData['weight'] ?? 0.0).toDouble();
-
-            height = (userData['height'] is int)
-                ? (userData['height'] as int).toDouble()
-                : (userData['height'] ?? 0.0).toDouble();
-
-            gender = userData['gender'] ?? "";
-            totalPoints = userData['points'] ?? 0;
-
-            // Load seeds inventory map
-            if (userData['seedsInventory'] != null) {
-              seedsInventory = Map<String, dynamic>.from(userData['seedsInventory']);
-            }
-
-            // Update controllers with current values
-            _updateControllers();
-          });
-
-          // Calculate rank based on points
-          await _calculateUserRank(uid, totalPoints);
-
-          // Get total users count
-          await _getTotalUsersCount();
-        }
+      final userData = await _data.loadUserData();
+      if (userData != null) {
+        setState(() {
+          uid = userData['uid'] ?? "";
+          userName = userData['name'] ?? "";
+          userEmail = userData['email'] ?? "";
+          createdAt = userData['createdAt'];
+          birthDate = userData['birthDate'] ?? DateTime.now();
+          weight = userData['weight'] ?? 0.0;
+          height = userData['height'] ?? 0.0;
+          gender = userData['gender'] ?? "";
+          totalPoints = userData['points'] ?? 0;
+          seedsInventory = userData['seedsInventory'] ?? {};
+          userRank = userData['rank'] ?? 0;
+          totalUsers = userData['totalUsers'] ?? 0;
+          _updateControllers();
+        });
       }
     } catch (e) {
-      print("Error loading user data: $e");
       _showErrorSnackBar('Failed to load profile data');
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      setState(() => isLoading = false);
     }
   }
 
   void _updateControllers() {
     _nameController.text = userName;
     _emailController.text = userEmail;
-    _birthDateController.text = _formatDate(birthDate);
+    _birthDateController.text = _logic.formatDate(birthDate);
     _weightController.text = weight.toString();
     _heightController.text = height.toString();
   }
 
-  String _formatTimestamp(Timestamp timestamp) {
-    DateTime dateTime = timestamp.toDate();
-    return "${_getMonthName(dateTime.month)} ${dateTime.day}, ${dateTime.year} at ${_formatTime(dateTime)}";
-  }
-
-  String _getMonthName(int month) {
-    const months = [
-      "January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"
-    ];
-    return months[month - 1];
-  }
-
-  String _formatTime(DateTime dateTime) {
-    String hour = dateTime.hour.toString().padLeft(2, '0');
-    String minute = dateTime.minute.toString().padLeft(2, '0');
-    String second = dateTime.second.toString().padLeft(2, '0');
-    return "$hour:$minute:$second";
-  }
-
-  Future<void> _calculateUserRank(String currentUid, int currentPoints) async {
-    try {
-      QuerySnapshot usersSnapshot = await _firestore
-          .collection('users')
-          .orderBy('points', descending: true)
-          .get();
-
-      int rank = 1;
-      for (var doc in usersSnapshot.docs) {
-        if (doc.id == currentUid) {
-          break;
-        }
-        rank++;
-      }
-
-      setState(() {
-        userRank = rank;
-      });
-    } catch (e) {
-      print("Error calculating rank: $e");
-    }
-  }
-
-  Future<void> _getTotalUsersCount() async {
-    try {
-      AggregateQuerySnapshot totalUsersSnapshot = await _firestore
-          .collection('users')
-          .count()
-          .get();
-
-      setState(() {
-        totalUsers = totalUsersSnapshot.count ?? 0;
-      });
-    } catch (e) {
-      print("Error getting total users: $e");
-    }
-  }
-
-  // Validation methods for each field
-  String? _validateName(String value) {
-    if (value.trim().isEmpty) {
-      return 'Name cannot be empty';
-    }
-    if (value.trim().length < 2) {
-      return 'Name must be at least 2 characters';
-    }
-    if (value.trim().length > 50) {
-      return 'Name must be less than 50 characters';
-    }
-    return null;
-  }
-
-  String? _validateEmail(String value) {
-    if (value.trim().isEmpty) {
-      return 'Email cannot be empty';
-    }
-
-    // Email regex pattern
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9.!#$%&’*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$',
-    );
-
-    if (!emailRegex.hasMatch(value.trim())) {
-      return 'Please enter a valid email address';
-    }
-
-    return null;
-  }
-
-  String? _validateBirthDate(String value) {
-    if (value.trim().isEmpty) {
-      return 'Birth date cannot be empty';
-    }
-
-    // Check date format (DD/MM/YYYY)
-    final dateRegex = RegExp(r'^\d{2}/\d{2}/\d{4}$');
-    if (!dateRegex.hasMatch(value.trim())) {
-      return 'Please enter date in DD/MM/YYYY format';
-    }
-
-    // Parse and validate date
-    try {
-      List<String> parts = value.trim().split('/');
-      int day = int.parse(parts[0]);
-      int month = int.parse(parts[1]);
-      int year = int.parse(parts[2]);
-
-      DateTime date = DateTime(year, month, day);
-      DateTime now = DateTime.now();
-
-      if (date.isAfter(now)) {
-        return 'Birth date cannot be in the future';
-      }
-
-      if (year < 1900) {
-        return 'Year must be 1900 or later';
-      }
-
-      if (date.isBefore(DateTime(1900, 1, 1))) {
-        return 'Date must be after 01/01/1900';
-      }
-    } catch (e) {
-      return 'Invalid date';
-    }
-
-    return null;
-  }
-
-  String? _validateWeight(String value) {
-    if (value.trim().isEmpty) {
-      return 'Weight cannot be empty';
-    }
-
-    try {
-      double weightValue = double.parse(value.trim());
-      if (weightValue <= 0) {
-        return 'Weight must be greater than 0';
-      }
-      if (weightValue > 500) {
-        return 'Weight must be less than 500 kg';
-      }
-      if (weightValue < 20) {
-        return 'Weight must be at least 20 kg';
-      }
-    } catch (e) {
-      return 'Please enter a valid number';
-    }
-
-    return null;
-  }
-
-  String? _validateHeight(String value) {
-    if (value.trim().isEmpty) {
-      return 'Height cannot be empty';
-    }
-
-    try {
-      double heightValue = double.parse(value.trim());
-      if (heightValue <= 0) {
-        return 'Height must be greater than 0';
-      }
-      if (heightValue > 300) {
-        return 'Height must be less than 300 cm';
-      }
-      if (heightValue < 50) {
-        return 'Height must be at least 50 cm';
-      }
-    } catch (e) {
-      return 'Please enter a valid number';
-    }
-
-    return null;
-  }
-
-  String? _validateGender(String value) {
-    if (value.isEmpty) {
-      return 'Please select your gender';
-    }
-    return null;
-  }
-
-  // Real-time validation on change
   void _onNameChanged(String value) {
-    setState(() {
-      _nameError = _validateName(value);
-    });
+    setState(() => _nameError = _logic.validateName(value));
   }
 
   void _onEmailChanged(String value) {
-    setState(() {
-      _emailError = _validateEmail(value);
-    });
+    setState(() => _emailError = _logic.validateEmail(value));
   }
 
   void _onWeightChanged(String value) {
-    setState(() {
-      _weightError = _validateWeight(value);
-    });
+    setState(() => _weightError = _logic.validateWeight(value));
   }
 
   void _onHeightChanged(String value) {
-    setState(() {
-      _heightError = _validateHeight(value);
-    });
+    setState(() => _heightError = _logic.validateHeight(value));
   }
 
   bool _validateAllInputs() {
     setState(() {
-      _nameError = _validateName(_nameController.text);
-      _emailError = _validateEmail(_emailController.text);
-      _birthDateError = _validateBirthDate(_birthDateController.text);
-      _weightError = _validateWeight(_weightController.text);
-      _heightError = _validateHeight(_heightController.text);
-      _genderError = _validateGender(gender);
+      _nameError = _logic.validateName(_nameController.text);
+      _emailError = _logic.validateEmail(_emailController.text);
+      _birthDateError = _logic.validateBirthDate(_birthDateController.text);
+      _weightError = _logic.validateWeight(_weightController.text);
+      _heightError = _logic.validateHeight(_heightController.text);
+      _genderError = _logic.validateGender(gender);
     });
-
-    return _nameError == null &&
-        _emailError == null &&
-        _birthDateError == null &&
-        _weightError == null &&
-        _heightError == null &&
-        _genderError == null;
+    return _nameError == null && _emailError == null && _birthDateError == null && _weightError == null && _heightError == null && _genderError == null;
   }
 
   Future<void> _updateUserData() async {
-    // Validate all inputs
     if (!_validateAllInputs()) {
       _showErrorSnackBar('Please fix the errors before saving');
       return;
     }
-
-    setState(() {
-      isLoading = true;
-    });
-
-    try {
-      User? currentUser = _auth.currentUser;
-
-      if (currentUser != null) {
-        // Prepare the updated data with correct types for Firestore
-        Map<String, dynamic> updatedData = {
-          'name': _nameController.text.trim(),
-          'email': _emailController.text.trim(),
-          'gender': gender,
-          'dateOfBirth': _birthDateController.text, // Store as string as per your schema
-          'weight': double.parse(_weightController.text.trim()),
-          'height': double.parse(_heightController.text.trim()),
-        };
-
-        print("Updating user with data: $updatedData"); // Debug print
-
-        // Update the document
-        await _firestore
-            .collection('users')
-            .doc(currentUser.uid)
-            .update(updatedData);
-
-        // Verify the update by fetching the document again
-        DocumentSnapshot updatedDoc = await _firestore
-            .collection('users')
-            .doc(currentUser.uid)
-            .get();
-
-        if (updatedDoc.exists) {
-          print("Update successful: ${updatedDoc.data()}"); // Debug print
-
-          setState(() {
-            isEditing = false;
-            // Clear all errors
-            _nameError = null;
-            _emailError = null;
-            _birthDateError = null;
-            _weightError = null;
-            _heightError = null;
-            _genderError = null;
-          });
-
-          // Refresh local data
-          await _loadUserData();
-
-          _showSuccessSnackBar('Profile updated successfully');
-        } else {
-          throw Exception('Document not found after update');
-        }
-      }
-    } catch (e) {
-      print("Error updating user data: $e");
-      _showErrorSnackBar('Failed to update profile: ${e.toString()}');
-
-      // Revert to view mode but keep data as is
+    setState(() => isLoading = true);
+    final userData = {
+      'name': _nameController.text.trim(),
+      'email': _emailController.text.trim(),
+      'gender': gender,
+      'dateOfBirth': _birthDateController.text,
+      'weight': double.parse(_weightController.text.trim()),
+      'height': double.parse(_heightController.text.trim()),
+    };
+    final success = await _data.updateUserData(uid, userData);
+    if (success) {
       setState(() {
         isEditing = false;
+        _nameError = null;
+        _emailError = null;
+        _birthDateError = null;
+        _weightError = null;
+        _heightError = null;
+        _genderError = null;
       });
-    } finally {
-      setState(() {
-        isLoading = false;
-      });
+      await _loadUserData();
+      _showSuccessSnackBar('Profile updated successfully');
+    } else {
+      _showErrorSnackBar('Failed to update profile');
+      setState(() => isEditing = false);
     }
+    setState(() => isLoading = false);
   }
 
   void _showSuccessSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: colorGreenDark,
+        backgroundColor: const Color(0xff7f9461),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -505,23 +209,22 @@ class _ProfilePageState extends State<ProfilePage> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: colorGreenDark,
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xff7f9461),
               onPrimary: Colors.white,
-              surface: colorCream,
-              onSurface: colorGreenDark,
+              surface: Color(0xFFEDE8DC),
+              onSurface: Color(0xff7f9461),
             ),
           ),
           child: child!,
         );
       },
     );
-
     if (picked != null) {
       setState(() {
         birthDate = picked;
-        _birthDateController.text = _formatDate(picked);
-        _birthDateError = _validateBirthDate(_birthDateController.text);
+        _birthDateController.text = _logic.formatDate(picked);
+        _birthDateError = _logic.validateBirthDate(_birthDateController.text);
       });
     }
   }
@@ -530,9 +233,7 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       isEditing = !isEditing;
       if (isEditing) {
-        // Refresh controllers with current values when entering edit mode
         _updateControllers();
-        // Clear any previous errors
         _nameError = null;
         _emailError = null;
         _birthDateError = null;
@@ -546,10 +247,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void _cancelEdit() {
     setState(() {
       isEditing = false;
-      // Reset controllers to original values
       _updateControllers();
-      gender = gender; // Reset gender to original
-      // Clear errors
+      gender = gender;
       _nameError = null;
       _emailError = null;
       _birthDateError = null;
@@ -577,19 +276,26 @@ class _ProfilePageState extends State<ProfilePage> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              setState(() {
-                isLoading = true;
-              });
-              await _auth.signOut();
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const HomeScreen()),
-              );
+              setState(() => isLoading = true);
+              await _data.logout();
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const Login()),
+                );
+              }
             },
             child: const Text('Logout', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
+    );
+  }
+
+  void _onLogoClick() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const Login()),
     );
   }
 
@@ -610,10 +316,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
-
+    setState(() => _selectedIndex = index);
     if (index == 2) {
       Navigator.pushReplacement(
         context,
@@ -625,16 +328,13 @@ class _ProfilePageState extends State<ProfilePage> {
         MaterialPageRoute(builder: (_) => const AnalyticsPage()),
       );
     } else if (index == 4) {
-      print('Already on Profile Page');
     } else {
       switch (index) {
         case 0:
-          Navigator.push(
-              context, MaterialPageRoute(builder: (_) => GardenPage()));
+          Navigator.push(context, MaterialPageRoute(builder: (_) => GardenPage()));
           break;
         case 1:
-          Navigator.push(
-              context, MaterialPageRoute(builder: (_) => ShopPage()));
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ShopPage()));
           break;
       }
     }
@@ -648,7 +348,7 @@ class _ProfilePageState extends State<ProfilePage> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [colorPinkish, colorCream, colorGreenLight],
+            colors: [Color(0xFFE7CCCC), Color(0xFFEDE8DC), Color(0xFFC1CFA1)],
             stops: [0.1, 0.5, 1.0],
           ),
         ),
@@ -656,7 +356,7 @@ class _ProfilePageState extends State<ProfilePage> {
           child: isLoading
               ? const Center(
             child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(colorGreenDark),
+              valueColor: AlwaysStoppedAnimation<Color>(Color(0xff7f9461)),
             ),
           )
               : SingleChildScrollView(
@@ -666,9 +366,7 @@ class _ProfilePageState extends State<ProfilePage> {
               children: [
                 const SizedBox(height: 16),
                 _buildAppBar(),
-
-                if (createdAt.isNotEmpty) _buildCreatedAtBanner(),
-
+                if (createdAt != null) _buildCreatedAtBanner(),
                 const SizedBox(height: 24),
                 _buildProfileHeader(),
                 const SizedBox(height: 24),
@@ -694,6 +392,30 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildAppBar() {
     return Row(
       children: [
+        GestureDetector(
+          onTap: _onLogoClick,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFC1CFA1).withOpacity(0.3),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.arrow_back, color: const Color(0xff7f9461), size: 20),
+                const SizedBox(width: 4),
+                Text(
+                  "Login",
+                  style: TextStyle(
+                    color: const Color(0xff7f9461),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
@@ -701,7 +423,7 @@ class _ProfilePageState extends State<ProfilePage> {
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: colorGreenDark,
+              color: const Color(0xff7f9461),
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -709,7 +431,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
         if (!isEditing)
           IconButton(
-            icon: const Icon(Icons.edit_outlined, color: colorGreenDark),
+            icon: const Icon(Icons.edit_outlined, color: Color(0xff7f9461)),
             onPressed: _toggleEditMode,
             tooltip: 'Edit Profile',
           ),
@@ -720,7 +442,7 @@ class _ProfilePageState extends State<ProfilePage> {
             tooltip: 'Cancel',
           ),
           IconButton(
-            icon: const Icon(Icons.save, color: colorGreenDark),
+            icon: const Icon(Icons.save, color: Color(0xff7f9461)),
             onPressed: _updateUserData,
             tooltip: 'Save',
           ),
@@ -730,23 +452,25 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildCreatedAtBanner() {
+    DateTime dateTime = createdAt!.toDate();
+    String formattedDate = "${_logic.getMonthName(dateTime.month)} ${dateTime.day}, ${dateTime.year} at ${_logic.formatTime(dateTime)}";
     return Container(
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: colorCream.withOpacity(0.7),
+        color: const Color(0xFFEDE8DC).withOpacity(0.7),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         children: [
-          Icon(Icons.access_time, color: colorGreenDark, size: 16),
+          Icon(Icons.access_time, color: const Color(0xff7f9461), size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              "Member since: $createdAt",
+              "Member since: $formattedDate",
               style: TextStyle(
                 fontSize: 12,
-                color: colorGreenDark,
+                color: const Color(0xff7f9461),
                 fontStyle: FontStyle.italic,
               ),
               maxLines: 2,
@@ -766,7 +490,7 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: colorGreenDark.withOpacity(0.1),
+            color: const Color(0xff7f9461).withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -780,13 +504,13 @@ class _ProfilePageState extends State<ProfilePage> {
             height: 80,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: colorGreenLight,
-              border: Border.all(color: colorGreenDark, width: 2),
+              color: const Color(0xFFC1CFA1),
+              border: Border.all(color: const Color(0xff7f9461), width: 2),
             ),
             child: const Icon(
               Icons.person,
               size: 50,
-              color: colorGreenDark,
+              color: Color(0xff7f9461),
             ),
           ),
           const SizedBox(width: 20),
@@ -803,7 +527,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       onChanged: _onNameChanged,
                       decoration: InputDecoration(
                         labelText: 'Name',
-                        labelStyle: TextStyle(color: colorGreenDark),
+                        labelStyle: const TextStyle(color: Color(0xff7f9461)),
                         errorText: _nameError,
                         errorStyle: const TextStyle(color: Colors.red),
                         border: OutlineInputBorder(
@@ -811,32 +535,32 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: colorGreenDark, width: 2),
+                          borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                         ),
                         errorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Colors.red, width: 1),
+                          borderSide: const BorderSide(color: Colors.red, width: 1),
                         ),
                         focusedErrorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Colors.red, width: 2),
+                          borderSide: const BorderSide(color: Colors.red, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: colorGreenDark,
+                        color: Color(0xff7f9461),
                       ),
                     ),
                   ],
                 )
                     : Text(
                   userName,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    color: colorGreenDark,
+                    color: Color(0xff7f9461),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -851,7 +575,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       onChanged: _onEmailChanged,
                       decoration: InputDecoration(
                         labelText: 'Email',
-                        labelStyle: TextStyle(color: colorGreenDark),
+                        labelStyle: const TextStyle(color: Color(0xff7f9461)),
                         errorText: _emailError,
                         errorStyle: const TextStyle(color: Colors.red),
                         border: OutlineInputBorder(
@@ -859,21 +583,21 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: colorGreenDark, width: 2),
+                          borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                         ),
                         errorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Colors.red, width: 1),
+                          borderSide: const BorderSide(color: Colors.red, width: 1),
                         ),
                         focusedErrorBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(color: Colors.red, width: 2),
+                          borderSide: const BorderSide(color: Colors.red, width: 2),
                         ),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       ),
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 14,
-                        color: colorGreenDark,
+                        color: Color(0xff7f9461),
                       ),
                     ),
                   ],
@@ -882,7 +606,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   userEmail,
                   style: TextStyle(
                     fontSize: 14,
-                    color: colorGreenDark.withOpacity(0.8),
+                    color: const Color(0xff7f9461).withOpacity(0.8),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -890,14 +614,14 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Icon(Icons.star, color: colorGreenDark, size: 20),
+                    Icon(Icons.star, color: const Color(0xff7f9461), size: 20),
                     const SizedBox(width: 6),
                     Text(
                       "$totalPoints Points",
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: colorGreenDark,
+                        color: Color(0xff7f9461),
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -920,7 +644,7 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: colorGreenDark.withOpacity(0.1),
+            color: const Color(0xff7f9461).withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -931,14 +655,14 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           Row(
             children: [
-              Icon(Icons.leaderboard, color: colorGreenDark, size: 24),
+              Icon(Icons.leaderboard, color: const Color(0xff7f9461), size: 24),
               const SizedBox(width: 10),
               Text(
                 "Global Ranking",
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: colorGreenDark,
+                  color: const Color(0xff7f9461),
                 ),
               ),
             ],
@@ -952,7 +676,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   height: 100,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: colorGreenDark, width: 3),
+                    border: Border.all(color: const Color(0xff7f9461), width: 3),
                   ),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -962,14 +686,14 @@ class _ProfilePageState extends State<ProfilePage> {
                         style: TextStyle(
                           fontSize: 32,
                           fontWeight: FontWeight.bold,
-                          color: colorGreenDark,
+                          color: const Color(0xff7f9461),
                         ),
                       ),
                       Text(
                         "Rank",
                         style: TextStyle(
                           fontSize: 14,
-                          color: colorGreenDark.withOpacity(0.8),
+                          color: const Color(0xff7f9461).withOpacity(0.8),
                         ),
                       ),
                     ],
@@ -980,7 +704,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   totalUsers > 0
                       ? "You are in the top ${((userRank / totalUsers) * 100).toStringAsFixed(1)}%"
                       : "Ranking available soon",
-                  style: TextStyle(fontSize: 14, color: colorGreenDark),
+                  style: const TextStyle(fontSize: 14, color: Color(0xff7f9461)),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -989,7 +713,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       : "Loading total users...",
                   style: TextStyle(
                     fontSize: 12,
-                    color: colorGreenDark.withOpacity(0.6),
+                    color: const Color(0xff7f9461).withOpacity(0.6),
                   ),
                 ),
               ],
@@ -1008,7 +732,7 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: colorGreenDark.withOpacity(0.1),
+            color: const Color(0xff7f9461).withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -1019,21 +743,19 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           Row(
             children: [
-              Icon(Icons.person_outline, color: colorGreenDark, size: 24),
+              Icon(Icons.person_outline, color: const Color(0xff7f9461), size: 24),
               const SizedBox(width: 10),
               Text(
                 "Personal Information",
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: colorGreenDark,
+                  color: const Color(0xff7f9461),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 20),
-
-          // Birth Date
           isEditing
               ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1044,9 +766,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: TextField(
                     controller: _birthDateController,
                     decoration: InputDecoration(
-                      labelText: 'Birth Date',
-                      labelStyle: TextStyle(color: colorGreenDark),
-                      prefixIcon: Icon(Icons.cake, color: colorGreenDark),
+                      labelText: 'Birth Date (DD/MM/YYYY)',
+                      labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                      prefixIcon: Icon(Icons.cake, color: const Color(0xff7f9461)),
+                      helperText: 'You must be at least 18 years old',
+                      helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
                       errorText: _birthDateError,
                       errorStyle: const TextStyle(color: Colors.red),
                       border: OutlineInputBorder(
@@ -1054,15 +778,15 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: colorGreenDark, width: 2),
+                        borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                       ),
                       errorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.red, width: 1),
+                        borderSide: const BorderSide(color: Colors.red, width: 1),
                       ),
                       focusedErrorBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide(color: Colors.red, width: 2),
+                        borderSide: const BorderSide(color: Colors.red, width: 2),
                       ),
                     ),
                   ),
@@ -1070,11 +794,8 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ],
           )
-              : _buildInfoItem("Birth Date", _formatDate(birthDate), Icons.cake),
-
-          const Divider(color: colorGreenLight, height: 20),
-
-          // Gender
+              : _buildInfoItem("Birth Date", _logic.formatDate(birthDate), Icons.cake),
+          const Divider(color: Color(0xFFC1CFA1), height: 20),
           isEditing
               ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1083,8 +804,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 value: gender.isEmpty ? null : gender,
                 decoration: InputDecoration(
                   labelText: 'Gender',
-                  labelStyle: TextStyle(color: colorGreenDark),
-                  prefixIcon: Icon(Icons.transgender, color: colorGreenDark),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  prefixIcon: Icon(Icons.transgender, color: const Color(0xff7f9461)),
                   errorText: _genderError,
                   errorStyle: const TextStyle(color: Colors.red),
                   border: OutlineInputBorder(
@@ -1092,28 +813,28 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: colorGreenDark, width: 2),
+                    borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 1),
+                    borderSide: const BorderSide(color: Colors.red, width: 1),
                   ),
                   focusedErrorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 2),
+                    borderSide: const BorderSide(color: Colors.red, width: 2),
                   ),
                 ),
                 items: genderOptions.map((String option) {
                   return DropdownMenuItem<String>(
                     value: option,
-                    child: Text(option, style: TextStyle(color: colorGreenDark)),
+                    child: Text(option, style: const TextStyle(color: Color(0xff7f9461))),
                   );
                 }).toList(),
                 onChanged: (String? newValue) {
                   if (newValue != null) {
                     setState(() {
                       gender = newValue;
-                      _genderError = _validateGender(gender);
+                      _genderError = _logic.validateGender(gender);
                     });
                   }
                 },
@@ -1121,22 +842,21 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           )
               : _buildInfoItem("Gender", gender, Icons.transgender),
-
-          const Divider(color: colorGreenLight, height: 20),
-
-          // Height
+          const Divider(color: Color(0xFFC1CFA1), height: 20),
           isEditing
               ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: _heightController,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onHeightChanged,
                 decoration: InputDecoration(
                   labelText: 'Height (cm)',
-                  labelStyle: TextStyle(color: colorGreenDark),
-                  prefixIcon: Icon(Icons.height, color: colorGreenDark),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  prefixIcon: Icon(Icons.height, color: const Color(0xff7f9461)),
+                  helperText: 'Valid range: 50 - 250 cm',
+                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
                   errorText: _heightError,
                   errorStyle: const TextStyle(color: Colors.red),
                   border: OutlineInputBorder(
@@ -1144,37 +864,36 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: colorGreenDark, width: 2),
+                    borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 1),
+                    borderSide: const BorderSide(color: Colors.red, width: 1),
                   ),
                   focusedErrorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 2),
+                    borderSide: const BorderSide(color: Colors.red, width: 2),
                   ),
                 ),
               ),
             ],
           )
               : _buildInfoItem("Height", "${height.toStringAsFixed(1)} cm", Icons.height),
-
-          const Divider(color: colorGreenLight, height: 20),
-
-          // Weight
+          const Divider(color: Color(0xFFC1CFA1), height: 20),
           isEditing
               ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: _weightController,
-                keyboardType: TextInputType.number,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onWeightChanged,
                 decoration: InputDecoration(
                   labelText: 'Weight (kg)',
-                  labelStyle: TextStyle(color: colorGreenDark),
-                  prefixIcon: Icon(Icons.monitor_weight, color: colorGreenDark),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  prefixIcon: Icon(Icons.monitor_weight, color: const Color(0xff7f9461)),
+                  helperText: 'Valid range: 20 - 300 kg',
+                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
                   errorText: _weightError,
                   errorStyle: const TextStyle(color: Colors.red),
                   border: OutlineInputBorder(
@@ -1182,25 +901,22 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: colorGreenDark, width: 2),
+                    borderSide: const BorderSide(color: Color(0xff7f9461), width: 2),
                   ),
                   errorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 1),
+                    borderSide: const BorderSide(color: Colors.red, width: 1),
                   ),
                   focusedErrorBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide(color: Colors.red, width: 2),
+                    borderSide: const BorderSide(color: Colors.red, width: 2),
                   ),
                 ),
               ),
             ],
           )
               : _buildInfoItem("Weight", "${weight.toStringAsFixed(1)} kg", Icons.monitor_weight),
-
-          const Divider(color: colorGreenLight, height: 20),
-
-          // Password
+          const Divider(color: Color(0xFFC1CFA1), height: 20),
           _buildInfoItem("Password", "••••••••", Icons.lock, onTap: _changePassword),
         ],
       ),
@@ -1211,7 +927,6 @@ class _ProfilePageState extends State<ProfilePage> {
     if (seedsInventory.isEmpty) {
       return const SizedBox.shrink();
     }
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1219,7 +934,7 @@ class _ProfilePageState extends State<ProfilePage> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: colorGreenDark.withOpacity(0.1),
+            color: const Color(0xff7f9461).withOpacity(0.1),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -1230,14 +945,14 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           Row(
             children: [
-              Icon(Icons.agriculture, color: colorGreenDark, size: 24),
+              Icon(Icons.agriculture, color: const Color(0xff7f9461), size: 24),
               const SizedBox(width: 10),
               Text(
                 "Seeds Inventory",
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: colorGreenDark,
+                  color: const Color(0xff7f9461),
                 ),
               ),
             ],
@@ -1246,11 +961,8 @@ class _ProfilePageState extends State<ProfilePage> {
           ...seedsInventory.entries.map((entry) {
             return Column(
               children: [
-                _buildInfoItem(
-                    entry.key,
-                    entry.value.toString(),
-                    Icons.grass),
-                const Divider(color: colorGreenLight, height: 20),
+                _buildInfoItem(entry.key, entry.value.toString(), Icons.grass),
+                const Divider(color: Color(0xFFC1CFA1), height: 20),
               ],
             );
           }).toList(),
@@ -1295,28 +1007,27 @@ class _ProfilePageState extends State<ProfilePage> {
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
       },
-      backgroundColor: colorGreenLight,
+      backgroundColor: const Color(0xFFC1CFA1),
       shape: const CircleBorder(),
       child: const Icon(Icons.home, color: Colors.white, size: 28),
     );
   }
 
-  Widget _buildInfoItem(String title, String value, IconData icon,
-      {VoidCallback? onTap}) {
+  Widget _buildInfoItem(String title, String value, IconData icon, {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            Icon(icon, color: colorGreenDark, size: 20),
+            Icon(icon, color: const Color(0xff7f9461), size: 20),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 title,
                 style: TextStyle(
                   fontSize: 14,
-                  color: colorGreenDark.withOpacity(0.8),
+                  color: const Color(0xff7f9461).withOpacity(0.8),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1329,7 +1040,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
-                  color: colorGreenDark,
+                  color: const Color(0xff7f9461),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1337,16 +1048,12 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             if (onTap != null) ...[
               const SizedBox(width: 8),
-              Icon(Icons.chevron_right, color: colorGreenDark, size: 20),
+              Icon(Icons.chevron_right, color: const Color(0xff7f9461), size: 20),
             ],
           ],
         ),
       ),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}";
   }
 
   Widget _buildBottomNav() {
@@ -1381,14 +1088,14 @@ class _ProfilePageState extends State<ProfilePage> {
           children: [
             Icon(
               icon,
-              color: isSelected ? colorGreenDark : Colors.grey,
+              color: isSelected ? const Color(0xff7f9461) : Colors.grey,
               size: isSelected ? 22 : 20,
             ),
             const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? colorGreenDark : Colors.grey,
+                color: isSelected ? const Color(0xff7f9461) : Colors.grey,
                 fontSize: isSelected ? 10 : 9,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),

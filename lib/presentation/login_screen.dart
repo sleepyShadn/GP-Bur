@@ -1,7 +1,10 @@
+// ========== lib/presentation/login_screen.dart ==========
+import 'package:appforhumman/presentation/register_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'register_screen.dart';
+import '../../domain/login_logic.dart';
+import '../../data/login_data.dart';
 import 'home_screen.dart';
+
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -11,23 +14,16 @@ class Login extends StatefulWidget {
 }
 
 class _LoginState extends State<Login> {
-  static const Color colorPinkish = Color(0xFFE7CCCC);
-  static const Color colorCream = Color(0xFFEDE8DC);
-  static const Color colorGreenDark = Color(0xFFA5B68D);
-  static const Color colorGreenLight = Color(0xFFC1CFA1);
-
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final LoginLogic _logic = LoginLogic();
+  final LoginData _data = LoginData();
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-
-  // Single error message state
   String? _loginErrorMessage;
 
   Future<void> _loginUser() async {
-    // Clear previous errors
     setState(() {
       _loginErrorMessage = null;
     });
@@ -43,28 +39,22 @@ class _LoginState extends State<Login> {
       _isLoading = true;
     });
 
-    try {
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+    final result = await _data.loginUser(
+      _emailController.text.trim(),
+      _passwordController.text.trim(),
+    );
 
-      if (userCredential.user != null) {
-        _showWelcomePopup();
-      }
-    } on FirebaseAuthException catch (e) {
+    if (result.success) {
+      _showWelcomePopup();
+    } else {
       setState(() {
         _loginErrorMessage = ' incorrect email or passwotrd';
-      });
-    } catch (e) {
-      setState(() {
-        _loginErrorMessage = ' incorrect email or passwotrd';
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
       });
     }
+
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   void _showWelcomePopup() {
@@ -72,20 +62,20 @@ class _LoginState extends State<Login> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
+        backgroundColor: _logic.colorCream,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
         ),
         title: const Icon(
           Icons.check_circle_outline,
-          color: colorGreenDark,
+          color: Color(0xFFA5B68D),
           size: 60,
         ),
         content: const Text(
-          "wellcpme back !",
+          "wellcome back !",
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: colorGreenDark,
+            color: Color(0xFFA5B68D),
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
@@ -104,7 +94,7 @@ class _LoginState extends State<Login> {
               child: const Text(
                 'Continue',
                 style: TextStyle(
-                  color: colorGreenDark,
+                  color: Color(0xFFA5B68D),
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
@@ -122,29 +112,22 @@ class _LoginState extends State<Login> {
       return;
     }
 
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
-        .hasMatch(_emailController.text.trim())) {
+    if (!_logic.isValidEmail(_emailController.text.trim())) {
       _showErrorDialog('Please enter a valid email address');
       return;
     }
 
-    try {
-      await _auth.sendPasswordResetEmail(email: _emailController.text.trim());
+    final result = await _data.sendPasswordResetEmail(
+      _emailController.text.trim(),
+    );
 
-      _showSuccessDialog('Password Reset Email Sent',
-          'A password reset link has been sent to ${_emailController.text}. Check your email to change your password.');
-    } on FirebaseAuthException catch (e) {
-      String errorMessage = 'Failed to send reset email';
-      if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email address';
-      } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email address format';
-      } else if (e.code == 'network-request-failed') {
-        errorMessage = 'Network error. Please check your internet connection';
-      }
-      _showErrorDialog(errorMessage);
-    } catch (e) {
-      _showErrorDialog('An error occurred. Please try again');
+    if (result.success) {
+      _showSuccessDialog(
+        'Password Reset Email Sent',
+        'A password reset link has been sent to ${_emailController.text}. Check your email to change your password.',
+      );
+    } else {
+      _showErrorDialog(result.errorMessage!);
     }
   }
 
@@ -152,13 +135,13 @@ class _LoginState extends State<Login> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
-        title: const Text('Error', style: TextStyle(color: colorGreenDark)),
-        content: Text(message, style: const TextStyle(color: colorGreenDark)),
+        backgroundColor: _logic.colorCream,
+        title: const Text('Error', style: TextStyle(color: Color(0xFFA5B68D))),
+        content: Text(message, style: const TextStyle(color: Color(0xFFA5B68D))),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: colorGreenDark)),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFA5B68D))),
           ),
         ],
       ),
@@ -169,13 +152,56 @@ class _LoginState extends State<Login> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
-        title: Text(title, style: const TextStyle(color: colorGreenDark)),
-        content: Text(message, style: const TextStyle(color: colorGreenDark)),
+        backgroundColor: _logic.colorCream,
+        title: Text(title, style: const TextStyle(color: Color(0xFFA5B68D))),
+        content: Text(message, style: const TextStyle(color: Color(0xFFA5B68D))),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: colorGreenDark)),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFA5B68D))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEnterEmailDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: _logic.colorCream,
+        title: const Text('Enter Email', style: TextStyle(color: Color(0xFFA5B68D))),
+        content: TextField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: InputDecoration(
+            hintText: 'sara@gmail.com',
+            hintStyle: const TextStyle(
+              color: Color(0xFFA5B68D),
+              fontStyle: FontStyle.italic,
+            ),
+            filled: true,
+            fillColor: _logic.colorPinkish,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Color(0xFFA5B68D))),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              if (_emailController.text.isNotEmpty) {
+                await _sendPasswordResetEmail();
+              }
+            },
+            child: const Text('Send Reset Link',
+                style: TextStyle(color: Color(0xFFA5B68D))),
           ),
         ],
       ),
@@ -185,7 +211,7 @@ class _LoginState extends State<Login> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: colorCream,
+      backgroundColor: _logic.colorCream,
       body: Stack(
         children: [
           Positioned(
@@ -193,7 +219,7 @@ class _LoginState extends State<Login> {
             left: -30,
             child: CircleAvatar(
               radius: 70,
-              backgroundColor: colorPinkish.withOpacity(0.4),
+              backgroundColor: _logic.colorPinkish.withOpacity(0.4),
             ),
           ),
           Positioned(
@@ -201,7 +227,7 @@ class _LoginState extends State<Login> {
             left: -50,
             child: CircleAvatar(
               radius: 90,
-              backgroundColor: colorGreenLight.withOpacity(0.2),
+              backgroundColor: _logic.colorGreenLight.withOpacity(0.2),
             ),
           ),
           SafeArea(
@@ -213,7 +239,7 @@ class _LoginState extends State<Login> {
                   children: [
                     const SizedBox(height: 10),
                     IconButton(
-                      icon: const Icon(Icons.arrow_back, color: colorGreenDark),
+                      icon: const Icon(Icons.arrow_back, color: Color(0xFFA5B68D)),
                       onPressed: () => Navigator.pop(context),
                     ),
                     const SizedBox(height: 20),
@@ -224,16 +250,15 @@ class _LoginState extends State<Login> {
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: colorGreenDark,
+                          color: Color(0xFFA5B68D),
                           height: 1.2,
                         ),
                       ),
                     ),
                     const SizedBox(height: 30),
-                    // Email field
                     Container(
                       decoration: BoxDecoration(
-                        color: colorPinkish,
+                        color: _logic.colorPinkish,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: TextField(
@@ -242,7 +267,7 @@ class _LoginState extends State<Login> {
                         decoration: InputDecoration(
                           hintText: "sara@example.com",
                           hintStyle: const TextStyle(
-                            color: colorGreenDark,
+                            color: Color(0xFFA5B68D),
                             fontSize: 14,
                             fontStyle: FontStyle.italic,
                           ),
@@ -262,10 +287,9 @@ class _LoginState extends State<Login> {
                       ),
                     ),
                     const SizedBox(height: 15),
-                    // Password field
                     Container(
                       decoration: BoxDecoration(
-                        color: colorPinkish,
+                        color: _logic.colorPinkish,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: TextField(
@@ -274,7 +298,7 @@ class _LoginState extends State<Login> {
                         decoration: InputDecoration(
                           hintText: "•••••••",
                           hintStyle: const TextStyle(
-                            color: colorGreenDark,
+                            color: Color(0xFFA5B68D),
                             fontSize: 14,
                             fontStyle: FontStyle.italic,
                           ),
@@ -283,7 +307,7 @@ class _LoginState extends State<Login> {
                               _obscurePassword
                                   ? Icons.visibility_off_outlined
                                   : Icons.visibility_outlined,
-                              color: colorGreenDark,
+                              color: const Color(0xFFA5B68D),
                               size: 20,
                             ),
                             onPressed: () {
@@ -308,7 +332,6 @@ class _LoginState extends State<Login> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // Single beautiful error message below all inputs
                     if (_loginErrorMessage != null)
                       Container(
                         width: double.infinity,
@@ -343,7 +366,6 @@ class _LoginState extends State<Login> {
                         ),
                       ),
                     const SizedBox(height: 5),
-                    // Forgot Password button
                     Align(
                       alignment: Alignment.centerRight,
                       child: GestureDetector(
@@ -360,7 +382,7 @@ class _LoginState extends State<Login> {
                           child: const Text(
                             "Forgot Password?",
                             style: TextStyle(
-                              color: colorGreenDark,
+                              color: Color(0xFFA5B68D),
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               decoration: TextDecoration.underline,
@@ -376,7 +398,7 @@ class _LoginState extends State<Login> {
                       child: ElevatedButton(
                         onPressed: _isLoading ? null : _loginUser,
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: colorGreenDark,
+                          backgroundColor: const Color(0xFFA5B68D),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -427,56 +449,11 @@ class _LoginState extends State<Login> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20), // Extra padding at bottom
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEnterEmailDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
-        title:
-        const Text('Enter Email', style: TextStyle(color: colorGreenDark)),
-        content: TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: InputDecoration(
-            hintText: 'sara@gmail.com',
-            hintStyle: const TextStyle(
-              color: colorGreenDark,
-              fontStyle: FontStyle.italic,
-            ),
-            filled: true,
-            fillColor: colorPinkish,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child:
-            const Text('Cancel', style: TextStyle(color: colorGreenDark)),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              if (_emailController.text.isNotEmpty) {
-                await _sendPasswordResetEmail();
-              }
-            },
-            child: const Text('Send Reset Link',
-                style: TextStyle(color: colorGreenDark)),
           ),
         ],
       ),

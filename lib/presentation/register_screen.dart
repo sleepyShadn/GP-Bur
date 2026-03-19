@@ -1,6 +1,7 @@
+// ========== lib/presentation/register_screen.dart ==========
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../domain/register_logic.dart';
+import '../../data/register_data.dart';
 import 'login_screen.dart';
 
 class Register extends StatefulWidget {
@@ -11,14 +12,8 @@ class Register extends StatefulWidget {
 }
 
 class _RegisterState extends State<Register> {
-  static const Color colorPinkish = Color(0xFFE7CCCC);
-  static const Color colorCream = Color(0xFFEDE8DC);
-  static const Color colorGreenDark = Color(0xFFA5B68D);
-  static const Color colorGreenLight = Color(0xFFC1CFA1);
-  static const Color colorPlaceholder = Color(0xFF362427);
-
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final RegisterLogic _logic = RegisterLogic();
+  final RegisterData _data = RegisterData();
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
@@ -31,22 +26,19 @@ class _RegisterState extends State<Register> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // Error message states
   String? _emailError;
   String? _passwordError;
   String? _dobError;
+  String? _nameError;
+  String? _weightError;
+  String? _heightError;
 
-  // Password requirement states
   bool _hasMinLength = false;
   bool _hasLowercase = false;
   bool _hasUppercase = false;
   bool _hasNumber = false;
   bool _hasSpecialChar = false;
-
-  // Email validation
   bool _isEmailValid = false;
-
-  // Selected date for DOB
   DateTime? _selectedDate;
 
   @override
@@ -54,8 +46,9 @@ class _RegisterState extends State<Register> {
     super.initState();
     _passwordController.addListener(_validatePassword);
     _emailController.addListener(_validateEmailFormat);
-
-    // Add listeners for weight and height to ensure only numbers
+    _nameController.addListener(_onNameChanged);
+    _weightController.addListener(_onWeightChanged);
+    _heightController.addListener(_onHeightChanged);
     _weightController.addListener(_validateWeightInput);
     _heightController.addListener(_validateHeightInput);
   }
@@ -64,6 +57,9 @@ class _RegisterState extends State<Register> {
   void dispose() {
     _passwordController.removeListener(_validatePassword);
     _emailController.removeListener(_validateEmailFormat);
+    _nameController.removeListener(_onNameChanged);
+    _weightController.removeListener(_onWeightChanged);
+    _heightController.removeListener(_onHeightChanged);
     _weightController.removeListener(_validateWeightInput);
     _heightController.removeListener(_validateHeightInput);
     _nameController.dispose();
@@ -73,6 +69,24 @@ class _RegisterState extends State<Register> {
     _weightController.dispose();
     _heightController.dispose();
     super.dispose();
+  }
+
+  void _onNameChanged() {
+    setState(() {
+      _nameError = _logic.validateName(_nameController.text);
+    });
+  }
+
+  void _onWeightChanged() {
+    setState(() {
+      _weightError = _logic.validateWeight(_weightController.text);
+    });
+  }
+
+  void _onHeightChanged() {
+    setState(() {
+      _heightError = _logic.validateHeight(_heightController.text);
+    });
   }
 
   void _validatePassword() {
@@ -88,8 +102,6 @@ class _RegisterState extends State<Register> {
 
   void _validateEmailFormat() {
     String email = _emailController.text.trim();
-
-    // Basic format validation
     bool hasAtSymbol = email.contains('@');
     bool validFormat = RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email);
 
@@ -114,14 +126,16 @@ class _RegisterState extends State<Register> {
   void _validateWeightInput() {
     String text = _weightController.text;
     if (text.isNotEmpty) {
-      // Remove any non-numeric characters except decimal point
       String filtered = text.replaceAll(RegExp(r'[^0-9.]'), '');
-
-      // Ensure only one decimal point
       if (filtered.indexOf('.') != filtered.lastIndexOf('.')) {
         filtered = filtered.substring(0, filtered.lastIndexOf('.'));
       }
-
+      if (filtered.contains('.')) {
+        List<String> parts = filtered.split('.');
+        if (parts[1].length > 1) {
+          filtered = parts[0] + '.' + parts[1].substring(0, 1);
+        }
+      }
       if (filtered != text) {
         _weightController.value = TextEditingValue(
           text: filtered,
@@ -134,9 +148,7 @@ class _RegisterState extends State<Register> {
   void _validateHeightInput() {
     String text = _heightController.text;
     if (text.isNotEmpty) {
-      // Remove any non-numeric characters (no decimals for height)
       String filtered = text.replaceAll(RegExp(r'[^0-9]'), '');
-
       if (filtered != text) {
         _heightController.value = TextEditingValue(
           text: filtered,
@@ -150,17 +162,17 @@ class _RegisterState extends State<Register> {
     DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate ??
-          DateTime.now().subtract(const Duration(days: 6570)), // ~18 years ago
+          DateTime.now().subtract(const Duration(days: 6570)),
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: colorGreenDark,
+              primary: Color(0xFFA5B68D),
               onPrimary: Colors.white,
-              surface: colorCream,
-              onSurface: colorGreenDark,
+              surface: Color(0xFFEDE8DC),
+              onSurface: Color(0xFFA5B68D),
             ),
           ),
           child: child!,
@@ -173,7 +185,7 @@ class _RegisterState extends State<Register> {
         _selectedDate = picked;
         _dobController.text =
         "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
-        _dobError = null; // Clear any previous error
+        _dobError = null;
       });
     }
   }
@@ -181,86 +193,71 @@ class _RegisterState extends State<Register> {
   bool _validateForm() {
     bool isValid = true;
 
-    // Check if all fields are filled
-    if (_nameController.text.isEmpty) {
-      _showErrorDialog('Please enter your name');
+    String? nameValidation = _logic.validateName(_nameController.text);
+    if (nameValidation != null) {
+      setState(() => _nameError = nameValidation);
       isValid = false;
-      return isValid;
+    } else {
+      setState(() => _nameError = null);
     }
 
     if (_emailController.text.isEmpty) {
-      _showErrorDialog('Please enter your email');
+      setState(() => _emailError = 'Email cannot be empty');
       isValid = false;
-      return isValid;
-    }
-
-    if (!_isEmailValid) {
-      setState(() {
-        _emailError = "Please enter a valid email address with '@'";
-      });
+    } else if (!_isEmailValid) {
+      setState(() => _emailError = "Please enter a valid email address with '@'");
       isValid = false;
+    } else {
+      setState(() => _emailError = null);
     }
 
     if (_passwordController.text.isEmpty) {
-      _showErrorDialog('Please enter a password');
+      setState(() => _passwordError = 'Password cannot be empty');
       isValid = false;
-      return isValid;
-    }
-
-    // Password validation
-    if (!_hasMinLength ||
-        !_hasLowercase ||
-        !_hasUppercase ||
-        !_hasNumber ||
-        !_hasSpecialChar) {
-      setState(() {
-        _passwordError = "All password requirements must be met";
-      });
+    } else if (!_hasMinLength || !_hasLowercase || !_hasUppercase || !_hasNumber || !_hasSpecialChar) {
+      setState(() => _passwordError = "All password requirements must be met");
       isValid = false;
     } else {
-      setState(() {
-        _passwordError = null;
-      });
+      setState(() => _passwordError = null);
     }
 
     if (_dobController.text.isEmpty) {
-      _showErrorDialog('Please select your date of birth');
+      setState(() => _dobError = 'Please select your date of birth');
       isValid = false;
-      return isValid;
-    }
-
-    // DOB validation (age check)
-    if (_selectedDate != null) {
+    } else if (_selectedDate != null) {
       DateTime today = DateTime.now();
       int age = today.year - _selectedDate!.year;
       if (today.month < _selectedDate!.month ||
-          (today.month == _selectedDate!.month &&
-              today.day < _selectedDate!.day)) {
+          (today.month == _selectedDate!.month && today.day < _selectedDate!.day)) {
         age--;
       }
-
       if (age < 18) {
-        setState(() {
-          _dobError = "You must be at least 18 years old to register";
-        });
+        setState(() => _dobError = "You must be at least 18 years old");
         isValid = false;
       } else {
-        setState(() {
-          _dobError = null;
-        });
+        setState(() => _dobError = null);
       }
     }
 
-    if (_weightController.text.isEmpty) {
-      _showErrorDialog('Please enter your weight');
+    String? weightValidation = _logic.validateWeight(_weightController.text);
+    if (weightValidation != null) {
+      setState(() => _weightError = weightValidation);
       isValid = false;
-      return isValid;
+    } else {
+      setState(() => _weightError = null);
     }
 
-    if (_heightController.text.isEmpty) {
-      _showErrorDialog('Please enter your height');
+    String? heightValidation = _logic.validateHeight(_heightController.text);
+    if (heightValidation != null) {
+      setState(() => _heightError = heightValidation);
       isValid = false;
-      return isValid;
+    } else {
+      setState(() => _heightError = null);
+    }
+
+    if (_gender.isEmpty) {
+      _showErrorDialog('Please select your gender');
+      isValid = false;
     }
 
     return isValid;
@@ -271,56 +268,41 @@ class _RegisterState extends State<Register> {
       return;
     }
 
-    // Show consent dialog
     bool? userConsented = await _showConsentDialog();
-
     if (userConsented != true) {
-      return; // User refused consent, return to registration page
+      return;
     }
 
     setState(() {
       _isLoading = true;
     });
 
-    try {
-      // Attempt to create user - this will fail if email already exists
-      UserCredential userCredential =
-      await _auth.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+    final userData = {
+      'name': _nameController.text.trim(),
+      'email': _emailController.text.trim(),
+      'password': _passwordController.text.trim(),
+      'dateOfBirth': _dobController.text.trim(),
+      'weight': double.tryParse(_weightController.text.trim()) ?? 0.0,
+      'height': double.tryParse(_heightController.text.trim()) ?? 0.0,
+      'gender': _gender,
+    };
 
-      String userId = userCredential.user!.uid;
+    final result = await _data.registerUser(userData);
 
-      await _firestore.collection('users').doc(userId).set({
-        'uid': userId,
-        'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'dateOfBirth': _dobController.text.trim(),
-        'weight': double.tryParse(_weightController.text.trim()) ?? 0.0,
-        'height': double.tryParse(_heightController.text.trim()) ?? 0.0,
-        'gender': _gender,
-        'createdAt': FieldValue.serverTimestamp(),
-        'points': 0,
-        'seedsInventory': {
-          'Regular Seeds': 0,
-          'Rare Seeds': 0,
-          'Legendary Seeds': 0,
-          'Growth Accelerator': 0,
-        },
-      });
+    setState(() {
+      _isLoading = false;
+    });
 
-      // Show success message
+    if (result.success) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Registration successful! Please log in.'),
-            backgroundColor: colorGreenDark,
+            backgroundColor: Color(0xFFA5B68D),
             duration: Duration(seconds: 2),
           ),
         );
 
-        // Navigate to login after short delay
         Future.delayed(const Duration(milliseconds: 500), () {
           if (mounted) {
             Navigator.pushAndRemoveUntil(
@@ -331,37 +313,14 @@ class _RegisterState extends State<Register> {
           }
         });
       }
-    } on FirebaseAuthException catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-
-      String errorMessage = 'Registration failed';
-      if (e.code == 'email-already-in-use') {
+    } else {
+      if (result.errorField == 'email') {
         setState(() {
-          _emailError = 'This email has been used before';
+          _emailError = result.errorMessage;
         });
-        errorMessage = 'This email is already registered';
-      } else if (e.code == 'invalid-email') {
-        setState(() {
-          _emailError = 'Invalid email address';
-        });
-        errorMessage = 'Please enter a valid email address';
-      } else if (e.code == 'weak-password') {
-        errorMessage = 'Password is too weak';
-      } else {
-        errorMessage = e.message ?? 'An error occurred';
       }
-
       if (mounted) {
-        _showErrorDialog(errorMessage);
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      if (mounted) {
-        _showErrorDialog('An error occurred. Please try again');
+        _showErrorDialog(result.errorMessage!);
       }
     }
   }
@@ -370,29 +329,29 @@ class _RegisterState extends State<Register> {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
+        backgroundColor: const Color(0xFFEDE8DC),
         title: const Text(
           'Data Sharing Consent',
-          style: TextStyle(color: colorGreenDark, fontWeight: FontWeight.bold),
+          style: TextStyle(color: Color(0xFFA5B68D), fontWeight: FontWeight.bold),
         ),
         content: const Text(
           'We would like to collect and use your personal data to improve your experience. '
               'This includes your name, email, date of birth, weight, height, and gender. '
               'Do you consent to sharing this information?',
-          style: TextStyle(color: colorGreenDark),
+          style: TextStyle(color: Color(0xFFA5B68D)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text(
               'No, thanks',
-              style: TextStyle(color: colorGreenDark),
+              style: TextStyle(color: Color(0xFFA5B68D)),
             ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: colorGreenDark,
+              backgroundColor: const Color(0xFFA5B68D),
             ),
             child: const Text(
               'I Consent',
@@ -408,13 +367,13 @@ class _RegisterState extends State<Register> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: colorCream,
-        title: const Text('Error', style: TextStyle(color: colorGreenDark)),
-        content: Text(message, style: const TextStyle(color: colorGreenDark)),
+        backgroundColor: const Color(0xFFEDE8DC),
+        title: const Text('Error', style: TextStyle(color: Color(0xFFA5B68D))),
+        content: Text(message, style: const TextStyle(color: Color(0xFFA5B68D))),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK', style: TextStyle(color: colorGreenDark)),
+            child: const Text('OK', style: TextStyle(color: Color(0xFFA5B68D))),
           ),
         ],
       ),
@@ -439,7 +398,7 @@ class _RegisterState extends State<Register> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: colorCream,
+      backgroundColor: const Color(0xFFEDE8DC),
       body: Stack(
         children: [
           Positioned(
@@ -447,7 +406,7 @@ class _RegisterState extends State<Register> {
             left: -30,
             child: CircleAvatar(
               radius: 80,
-              backgroundColor: colorPinkish.withOpacity(0.4),
+              backgroundColor: const Color(0xFFE7CCCC).withOpacity(0.4),
             ),
           ),
           Positioned(
@@ -455,7 +414,7 @@ class _RegisterState extends State<Register> {
             right: -40,
             child: CircleAvatar(
               radius: 100,
-              backgroundColor: colorGreenLight.withOpacity(0.3),
+              backgroundColor: const Color(0xFFC1CFA1).withOpacity(0.3),
             ),
           ),
           SafeArea(
@@ -466,7 +425,7 @@ class _RegisterState extends State<Register> {
                 children: [
                   const SizedBox(height: 10),
                   IconButton(
-                    icon: const Icon(Icons.arrow_back, color: colorGreenDark),
+                    icon: const Icon(Icons.arrow_back, color: Color(0xFFA5B68D)),
                     onPressed: () => Navigator.pop(context),
                   ),
                   const SizedBox(height: 10),
@@ -476,189 +435,230 @@ class _RegisterState extends State<Register> {
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: colorGreenDark,
+                        color: Color(0xFFA5B68D),
                       ),
                     ),
                   ),
                   const SizedBox(height: 30),
 
-                  // Name field
-                  TextField(
-                    controller: _nameController,
-                    decoration: _buildInputDecoration("alia"),
-                  ),
-                  const SizedBox(height: 15),
-
-                  // Email field with validation
-                  TextField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: _buildInputDecoration(
-                      "sara@gmail.com",
-                      errorText: _emailError,
-                      suffixIcon: _isEmailValid
-                          ? const Icon(Icons.check_circle,
-                          color: Colors.green, size: 20)
-                          : null,
-                    ),
-                    onChanged: (value) {
-                      _validateEmailFormat();
-                    },
-                  ),
-                  if (_emailError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8, left: 12),
-                      child: Text(
-                        _emailError!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _nameController,
+                        decoration: _buildInputDecoration(
+                          "alia",
+                          errorText: _nameError,
                         ),
                       ),
-                    ),
-                  const SizedBox(height: 15),
-
-                  // Password field with real-time requirements
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: _obscurePassword,
-                    decoration: _buildInputDecoration(
-                      "Password123!",
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off_outlined
-                              : Icons.visibility_outlined,
-                          color: colorGreenDark,
-                          size: 20,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
-                      errorText: _passwordError,
-                    ),
-                  ),
-
-                  // Password requirements reminder
-                  Container(
-                    margin: const EdgeInsets.only(top: 8, left: 12, bottom: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: colorPinkish.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _getPasswordRequirementsText(),
-                          style: TextStyle(
-                            color: (_hasMinLength &&
-                                _hasLowercase &&
-                                _hasUppercase &&
-                                _hasNumber &&
-                                _hasSpecialChar)
-                                ? Colors.green
-                                : colorGreenDark,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+                      if (_nameError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, left: 12),
+                          child: Text(
+                            _nameError!,
+                            style: const TextStyle(color: Colors.red, fontSize: 11),
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
+                    ],
+                  ),
+                  const SizedBox(height: 15),
+
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: _buildInputDecoration(
+                          "sara@gmail.com",
+                          errorText: _emailError,
+                          suffixIcon: _isEmailValid
+                              ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                              : null,
+                        ),
+                        onChanged: (value) {
+                          _validateEmailFormat();
+                        },
+                      ),
+                      if (_emailError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, left: 12),
+                          child: Text(
+                            _emailError!,
+                            style: const TextStyle(color: Colors.red, fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 15),
+
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        decoration: _buildInputDecoration(
+                          "Password123!",
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              color: const Color(0xFFA5B68D),
+                              size: 20,
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _obscurePassword = !_obscurePassword;
+                              });
+                            },
+                          ),
+                          errorText: _passwordError,
+                        ),
+                      ),
+
+                      Container(
+                        margin: const EdgeInsets.only(top: 8, left: 12, bottom: 8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE7CCCC).withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildRequirementChip("6+ chars", _hasMinLength),
-                            _buildRequirementChip("a-z", _hasLowercase),
-                            _buildRequirementChip("A-Z", _hasUppercase),
-                            _buildRequirementChip("0-9", _hasNumber),
-                            _buildRequirementChip("!@#\$%", _hasSpecialChar),
+                            Text(
+                              _getPasswordRequirementsText(),
+                              style: TextStyle(
+                                color: (_hasMinLength &&
+                                    _hasLowercase &&
+                                    _hasUppercase &&
+                                    _hasNumber &&
+                                    _hasSpecialChar)
+                                    ? Colors.green
+                                    : const Color(0xFFA5B68D),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                _buildRequirementChip("6+ chars", _hasMinLength),
+                                _buildRequirementChip("a-z", _hasLowercase),
+                                _buildRequirementChip("A-Z", _hasUppercase),
+                                _buildRequirementChip("0-9", _hasNumber),
+                                _buildRequirementChip("!@#\$%", _hasSpecialChar),
+                              ],
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-
-                  if (_passwordError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4, left: 12),
-                      child: Text(
-                        _passwordError!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
-                        ),
                       ),
-                    ),
+
+                      if (_passwordError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, left: 12),
+                          child: Text(
+                            _passwordError!,
+                            style: const TextStyle(color: Colors.red, fontSize: 11),
+                          ),
+                        ),
+                    ],
+                  ),
                   const SizedBox(height: 15),
 
-                  // Date of Birth field with DatePicker
-                  GestureDetector(
-                    onTap: _selectDate,
-                    child: AbsorbPointer(
-                      child: TextField(
-                        controller: _dobController,
-                        keyboardType: TextInputType.datetime,
-                        decoration: _buildInputDecoration(
-                          "Select your date of birth",
-                          icon: Icons.calendar_month,
-                          errorText: _dobError,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      GestureDetector(
+                        onTap: _selectDate,
+                        child: AbsorbPointer(
+                          child: TextField(
+                            controller: _dobController,
+                            keyboardType: TextInputType.datetime,
+                            decoration: _buildInputDecoration(
+                              "Select your date of birth",
+                              icon: Icons.calendar_month,
+                              errorText: _dobError,
+                            ),
+                          ),
                         ),
                       ),
-                    ),
+                      if (_dobError != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, left: 12),
+                          child: Text(
+                            _dobError!,
+                            style: const TextStyle(color: Colors.red, fontSize: 11),
+                          ),
+                        ),
+                    ],
                   ),
-                  if (_dobError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8, left: 12),
-                      child: Text(
-                        _dobError!,
-                        style: const TextStyle(
-                          color: Colors.red,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
                   const SizedBox(height: 15),
 
-                  // Weight and Height with number only input
                   Row(
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: _weightController,
-                          keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true),
-                          decoration: _buildInputDecoration(
-                            "70.5",
-                            suffix: "kg",
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _weightController,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: _buildInputDecoration(
+                                "70.5",
+                                suffix: "kg",
+                                errorText: _weightError,
+                              ),
+                            ),
+                            if (_weightError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, left: 12),
+                                child: Text(
+                                  _weightError!,
+                                  style: const TextStyle(color: Colors.red, fontSize: 11),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 15),
                       Expanded(
-                        child: TextField(
-                          controller: _heightController,
-                          keyboardType: TextInputType.number,
-                          decoration: _buildInputDecoration(
-                            "175",
-                            suffix: "cm",
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _heightController,
+                              keyboardType: TextInputType.number,
+                              decoration: _buildInputDecoration(
+                                "175",
+                                suffix: "cm",
+                                errorText: _heightError,
+                              ),
+                            ),
+                            if (_heightError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, left: 12),
+                                child: Text(
+                                  _heightError!,
+                                  style: const TextStyle(color: Colors.red, fontSize: 11),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 15),
 
-                  // Gender selection
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     height: 55,
                     decoration: BoxDecoration(
-                      color: colorPinkish,
+                      color: const Color(0xFFE7CCCC),
                       borderRadius: BorderRadius.circular(15),
                     ),
                     child: Row(
@@ -666,7 +666,7 @@ class _RegisterState extends State<Register> {
                         const Text(
                           "Gender",
                           style: TextStyle(
-                              color: colorPlaceholder,
+                              color: Color(0xFF362427),
                               fontWeight: FontWeight.w500),
                         ),
                         const Spacer(),
@@ -678,14 +678,13 @@ class _RegisterState extends State<Register> {
                   ),
                   const SizedBox(height: 40),
 
-                  // Register button
                   SizedBox(
                     width: double.infinity,
                     height: 55,
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _registerUser,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: colorGreenDark,
+                        backgroundColor: const Color(0xFFA5B68D),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -712,7 +711,6 @@ class _RegisterState extends State<Register> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Login link
                   Center(
                     child: TextButton(
                       onPressed: () {
@@ -758,11 +756,11 @@ class _RegisterState extends State<Register> {
           Icon(
             _gender == gender ? Icons.check_circle : Icons.radio_button_off,
             size: 18,
-            color: colorGreenDark,
+            color: const Color(0xFFA5B68D),
           ),
           const SizedBox(width: 4),
           Text(gender,
-              style: const TextStyle(color: colorPlaceholder, fontSize: 13)),
+              style: const TextStyle(color: Color(0xFF362427), fontSize: 13)),
         ],
       ),
     );
@@ -772,19 +770,19 @@ class _RegisterState extends State<Register> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: isMet ? Colors.green : colorPinkish,
+        color: isMet ? Colors.green : const Color(0xFFE7CCCC),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isMet) const Icon(Icons.check, color: Colors.white, size: 12),
-          if (!isMet) const Icon(Icons.circle, color: colorGreenDark, size: 8),
+          if (!isMet) const Icon(Icons.circle, color: Color(0xFFA5B68D), size: 8),
           const SizedBox(width: 4),
           Text(
             text,
             style: TextStyle(
-              color: isMet ? Colors.white : colorGreenDark,
+              color: isMet ? Colors.white : const Color(0xFFA5B68D),
               fontSize: 10,
               fontWeight: FontWeight.w500,
             ),
@@ -799,24 +797,24 @@ class _RegisterState extends State<Register> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        color: colorPlaceholder,
+        color: Color(0xFF362427),
         fontSize: 14,
         fontStyle: FontStyle.italic,
       ),
       errorText: errorText,
       errorStyle: const TextStyle(
         color: Colors.red,
-        fontSize: 12,
+        fontSize: 11,
       ),
       filled: true,
-      fillColor: colorPinkish,
+      fillColor: const Color(0xFFE7CCCC),
       suffixText: suffix,
       suffixStyle: const TextStyle(
-        color: colorGreenDark,
+        color: Color(0xFFA5B68D),
         fontWeight: FontWeight.bold,
       ),
       suffixIcon: suffixIcon ??
-          (icon != null ? Icon(icon, color: colorGreenDark, size: 20) : null),
+          (icon != null ? Icon(icon, color: const Color(0xFFA5B68D), size: 20) : null),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(15),
@@ -829,7 +827,7 @@ class _RegisterState extends State<Register> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(15),
         borderSide: const BorderSide(
-          color: colorGreenDark,
+          color: Color(0xFFA5B68D),
           width: 2,
         ),
       ),

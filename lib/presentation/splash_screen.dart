@@ -1,19 +1,18 @@
+// ========== lib/presentation/splash_screen.dart ==========
 import 'package:flutter/material.dart';
-import 'auth_selection_screen.dart';
-import 'register_screen.dart';
+import '../../domain/splash_logic.dart';
+import '../../data/splash_data.dart';
 
 class SplashScreen extends StatelessWidget {
-  static const Color colorPinkish = Color(0xFFE7CCCC);
-  static const Color colorCream = Color(0xFFEDE8DC);
-  static const Color colorGreenDark = Color(0xff7f9461);
-  static const Color colorGreenLight = Color(0xFFC1CFA1);
+  final SplashLogic _logic = SplashLogic();
+  final SplashData _data = SplashData();
 
-  const SplashScreen({super.key});
+  SplashScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: colorPinkish,
+      backgroundColor: _logic.colorPinkish,
       body: SafeArea(
         child: Stack(
           children: [
@@ -21,27 +20,25 @@ class SplashScreen extends StatelessWidget {
               child: Column(
                 children: [
                   const SizedBox(height: 60),
-                  const Text(
-                    "Welcome to Bur'",
-                    style: TextStyle(
+                  Text(
+                    _logic.welcomeText,
+                    style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: colorGreenDark,
-                    ),
+                      color: Color(0xff7f9461),),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    "Track, grow, and bloom within.",
-                    style: TextStyle(
+                  Text(
+                    _logic.subtitleText,
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: colorGreenDark,
+                      color: Color(0xff7f9461),
                     ),
                   ),
                   const SizedBox(height: 30),
-                  // Added logo image in center
                   Image.asset(
-                    'assets/logo.png',
+                    _data.logoPath,
                     height: 240,
                     width: 290,
                     fit: BoxFit.contain,
@@ -67,7 +64,7 @@ class SplashScreen extends StatelessWidget {
                             height: 300,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: colorCream.withOpacity(0.4),
+                              color: _logic.colorCream.withOpacity(0.4),
                             ),
                           ),
                         ),
@@ -78,7 +75,7 @@ class SplashScreen extends StatelessWidget {
                     width: double.infinity,
                     height: 250,
                     decoration: const BoxDecoration(
-                      color: colorGreenLight,
+                      color: Color(0xFFC1CFA1),
                       borderRadius: BorderRadius.only(
                         topLeft: Radius.circular(40),
                         topRight: Radius.circular(40),
@@ -92,22 +89,19 @@ class SplashScreen extends StatelessWidget {
                           height: 55,
                           child: ElevatedButton(
                             onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (context) => AuthSelectionScreen()),
-                              );
+                              _data.navigateToAuthSelection(context);
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: colorCream,
+                              backgroundColor: _logic.colorCream,
                               elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            child: const Text(
-                              "GET STARTED",
-                              style: TextStyle(
-                                color: colorGreenDark,
+                            child: Text(
+                              _logic.buttonText,
+                              style: const TextStyle(
+                                color: Color(0xff7f9461),
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 1.2,
                               ),

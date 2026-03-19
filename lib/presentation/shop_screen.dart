@@ -1,5 +1,7 @@
+// ========== lib/presentation/shop_screen.dart ==========
 import 'package:flutter/material.dart';
-import 'home_screen.dart';
+import '../../domain/shop_logic.dart';
+import '../../data/shop_data.dart';
 import 'home_screen.dart';
 import 'analysis_screen.dart';
 import 'profile_screen.dart';
@@ -13,39 +15,89 @@ class ShopPage extends StatefulWidget {
 }
 
 class _ShopPageState extends State<ShopPage> {
-  static const Color colorPinkish = Color(0xFFE7CCCC);
-  static const Color colorCream = Color(0xFFEDE8DC);
-  static const Color colorGreenDark = Color(0xff7f9461);
-  static const Color colorGreenLight = Color(0xFFC1CFA1);
-  static const Color colorAccentPink = Color(0xFFF2A6A6);
-  static const Color colorItemBg = Color(0xffe89fa8);
+  final ShopLogic _logic = ShopLogic();
+  final ShopData _data = ShopData();
+
+  String _userId = '';
+  int _userPoints = 0;
+  bool _isLoading = true;
 
   int _selectedIndex = 1;
 
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentUser();
+  }
+
+  Future<void> _getCurrentUser() async {
+    final user = await _data.getCurrentUser();
+    if (user != null) {
+      setState(() => _userId = user['uid'] ?? '');
+      _loadUserPoints();
+    } else {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _loadUserPoints() async {
+    final points = await _data.loadUserPoints(_userId);
+    if (mounted) {
+      setState(() {
+        _userPoints = points;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _buyItem(ShopItem item) async {
+    if (_userId.isEmpty) {
+      _showSnackBar('Please log in first', Colors.red);
+      return;
+    }
+
+    if (_userPoints < item.price) {
+      _showSnackBar('Insufficient points to buy this item', Colors.orange);
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    final success = await _data.buyItem(_userId, item, _userPoints);
+
+    if (success && mounted) {
+      setState(() {
+        _userPoints -= item.price;
+        _isLoading = false;
+      });
+      _showSnackBar('Purchase complete successfully', const Color(0xff7f9461));
+    } else if (mounted) {
+      setState(() => _isLoading = false);
+      _showSnackBar('Error completing purchase', Colors.red);
+    }
+  }
+
+  void _showSnackBar(String message, Color backgroundColor) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: backgroundColor,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    setState(() => _selectedIndex = index);
 
     if (index == 2) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } else if (index == 3) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const AnalyticsPage()),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const AnalyticsPage()));
     } else if (index == 4) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const ProfilePage()),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const ProfilePage()));
     } else if (index == 0) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => GardenPage()));
-    } else if (index == 1) {
-      print('Already on Shop Page');
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const GardenPage()));
     }
   }
 
@@ -53,10 +105,9 @@ class _ShopPageState extends State<ShopPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBody: true,
-      backgroundColor: colorCream,
+      backgroundColor: const Color(0xFFEDE8DC),
       body: Stack(
         children: [
-          // Background Gradient and Waves
           Container(
             width: double.infinity,
             height: double.infinity,
@@ -64,19 +115,20 @@ class _ShopPageState extends State<ShopPage> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: [colorPinkish, Color(0xfff5d5d5), colorCream],
+                colors: [Color(0xFFE7CCCC), Color(0xfff5d5d5), Color(0xFFEDE8DC)],
               ),
             ),
           ),
-
           SafeArea(
-            child: SingleChildScrollView(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator(color: Color(0xff7f9461)))
+                : _userId.isEmpty
+                ? _buildNoUserWidget()
+                : SingleChildScrollView(
               child: Column(
                 children: [
                   const SizedBox(height: 10),
                   _buildHeader(),
-
-                  // Scalloped/Wavy Divider (Simplified as a curved container)
                   Container(
                     height: 40,
                     width: double.infinity,
@@ -88,17 +140,13 @@ class _ShopPageState extends State<ShopPage> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // Points Display
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: const Color(0xffce7d88).withOpacity(0.3),
                           borderRadius: BorderRadius.circular(8),
@@ -108,44 +156,17 @@ class _ShopPageState extends State<ShopPage> {
                           children: [
                             _buildCoinIcon(),
                             const SizedBox(width: 10),
-                            const Text(
-                              "707",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black54,
-                              ),
+                            Text(
+                              "$_userPoints",
+                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black54),
                             ),
                           ],
                         ),
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 20),
-
-                  // Shop Items
-                  _buildShopItem(
-                    "Regular Seeds",
-                    "60% Common\n30% Rare\n10% Legendary",
-                    "35",
-                  ),
-                  _buildShopItem(
-                    "Rare Seeds",
-                    "Immediately reduce\nthe remaining growth\ntime of flowers.",
-                    "100",
-                  ),
-                  _buildShopItem(
-                    "Growth Accelerator",
-                    "Double the growth rate\nfor the next 24 hours.",
-                    "150",
-                  ),
-                  _buildShopItem(
-                    "Legendary Seeds",
-                    "description ",
-                    "100",
-                  ),
-
+                  ..._logic.shopItems.map((item) => _buildShopItem(item)),
                   const SizedBox(height: 100),
                 ],
               ),
@@ -155,18 +176,35 @@ class _ShopPageState extends State<ShopPage> {
       ),
       bottomNavigationBar: _buildBottomNav(),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const HomeScreen()),
-          );
-        },
-        backgroundColor: colorGreenLight,
+        onPressed: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen())),
+        backgroundColor: const Color(0xFFC1CFA1),
         elevation: 2,
         shape: const CircleBorder(),
         child: const Icon(Icons.home, color: Colors.white, size: 30),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+    );
+  }
+
+  Widget _buildNoUserWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.account_circle, size: 80, color: const Color(0xff7f9461).withOpacity(0.5)),
+          const SizedBox(height: 16),
+          const Text('No user logged in', style: TextStyle(color: Color(0xff7f9461), fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32.0),
+            child: Text(
+              'Please log in to access the shop',
+              style: TextStyle(color: const Color(0xff7f9461).withOpacity(0.7), fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -176,23 +214,16 @@ class _ShopPageState extends State<ShopPage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Dog Character
           Container(
             height: 100,
             width: 100,
             decoration: BoxDecoration(
-              color: colorGreenLight,
+              color: const Color(0xFFC1CFA1),
               borderRadius: BorderRadius.circular(50),
             ),
-            child: const Icon(
-              Icons.eco,
-              size: 60,
-              color: Colors.white,
-            ),
+            child: const Icon(Icons.eco, size: 60, color: Colors.white),
           ),
-
           const SizedBox(width: 10),
-          // Speech Bubble
           Expanded(
             child: Container(
               margin: const EdgeInsets.only(bottom: 20),
@@ -205,11 +236,7 @@ class _ShopPageState extends State<ShopPage> {
               child: const Center(
                 child: Text(
                   "Welcome to Shop!",
-                  style: TextStyle(
-                    fontSize: 22,
-                    color: Colors.grey,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  style: TextStyle(fontSize: 22, color: Colors.grey, fontWeight: FontWeight.w500),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -220,24 +247,21 @@ class _ShopPageState extends State<ShopPage> {
     );
   }
 
-  Widget _buildShopItem(String title, String desc, String price) {
+  Widget _buildShopItem(ShopItem item) {
+    bool canAfford = _userPoints >= item.price;
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 25, vertical: 6),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: colorItemBg,
+        color: const Color(0xffe89fa8).withOpacity(canAfford ? 1.0 : 0.5),
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            offset: const Offset(0, 4),
-            blurRadius: 4,
-          )
+          BoxShadow(color: Colors.black.withOpacity(0.05), offset: const Offset(0, 4), blurRadius: 4),
         ],
       ),
       child: Row(
         children: [
-          // Item Image/Icon Placeholder
           Container(
             height: 60,
             width: 60,
@@ -245,39 +269,47 @@ class _ShopPageState extends State<ShopPage> {
               color: Colors.brown.shade200,
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.inventory_2, color: Colors.white, size: 30),
+            child: Icon(_logic.getItemIcon(item.name), color: Colors.white, size: 30),
           ),
           const SizedBox(width: 15),
-          // Text Content
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  title,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.white),
+                  item.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 Text(
-                  desc,
+                  item.description,
                   style: const TextStyle(fontSize: 11, color: Colors.white70),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
           ),
-          // Price Badge
           Row(
             children: [
               _buildCoinIcon(size: 35),
               const SizedBox(width: 5),
               Text(
-                price,
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black54,
-                    fontSize: 18),
+                '${item.price}',
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54, fontSize: 18),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: canAfford ? () => _buyItem(item) : null,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: canAfford ? const Color(0xff7f9461) : Colors.grey,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text('BUY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                ),
               ),
             ],
           ),
@@ -293,11 +325,10 @@ class _ShopPageState extends State<ShopPage> {
       decoration: const BoxDecoration(
         color: Colors.orangeAccent,
         shape: BoxShape.circle,
-        border:
-            Border.fromBorderSide(BorderSide(color: Colors.orange, width: 2)),
+        border: Border.fromBorderSide(BorderSide(color: Colors.orange, width: 2)),
       ),
-      child: const Center(
-        child: Icon(Icons.favorite, color: Colors.white, size: 14),
+      child: Center(
+        child: Icon(Icons.favorite, color: Colors.white, size: size * 0.6),
       ),
     );
   }
@@ -330,16 +361,12 @@ class _ShopPageState extends State<ShopPage> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            icon,
-            color: isSelected ? colorGreenDark : Colors.grey,
-            size: isSelected ? 24 : 22,
-          ),
+          Icon(icon, color: isSelected ? const Color(0xff7f9461) : Colors.grey, size: isSelected ? 24 : 22),
           const SizedBox(height: 2),
           Text(
             label,
             style: TextStyle(
-              color: isSelected ? colorGreenDark : Colors.grey,
+              color: isSelected ? const Color(0xff7f9461) : Colors.grey,
               fontSize: isSelected ? 11 : 10,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
             ),
@@ -349,3 +376,4 @@ class _ShopPageState extends State<ShopPage> {
     );
   }
 }
+
