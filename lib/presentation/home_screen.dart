@@ -120,10 +120,29 @@ class _HomeScreenState extends State<HomeScreen> {
   void _listen() async {
     if (!_isListening) {
       bool available = await _speech.initialize();
+
       if (available) {
         setState(() => _isListening = true);
+
+        // الحصول على قائمة اللغات
+        var locales = await _speech.locales();
+
+        // البحث عن اللغة الإنجليزية فقط
+        var englishLocale = locales.firstWhere(
+              (locale) => locale.localeId.contains('en'),
+          orElse: () => locales.first, // إذا لم يوجد انجليزي، استخدم الافتراضي
+        );
+
         _speech.listen(
-          onResult: (val) => setState(() => _textController.text = val.recognizedWords),
+          onResult: (val) {
+            setState(() {
+              _textController.text = val.recognizedWords;
+            });
+          },
+          localeId: englishLocale.localeId, // فرض الإنجليزية
+          listenOptions: stt.SpeechListenOptions(
+            listenMode: stt.ListenMode.dictation,
+          ),
         );
       }
     } else {
@@ -131,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _speech.stop();
     }
   }
+
 
   void _showDailyLimitMessage() {
     _logic.showDailyLimitMessage(context);
@@ -476,8 +496,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       _logic.getGoalStatusMessage(_isGoalCompleted, _goalExpiryDate),
                       style: TextStyle(
                         color: _isGoalCompleted ? const Color(0xff7f9461) : const Color(0xff7f9461),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
                       ),
                       textAlign: TextAlign.center,
                     ),
@@ -729,7 +749,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   style: const TextStyle(
                     color: Color(0xff7f9461),
                     fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontSize: 16,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -743,6 +763,7 @@ class _HomeScreenState extends State<HomeScreen> {
               content,
               style: const TextStyle(
                 color: Color(0xff7f9461),
+                fontWeight: FontWeight.bold,
                 fontSize: 15,
                 height: 1.4,
               ),

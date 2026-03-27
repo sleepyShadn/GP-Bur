@@ -618,7 +618,7 @@ class _GardenPageState extends State<GardenPage> {
               children: [
                 GestureDetector(
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ApplePickingScreen())),
-                  child: _buildGameButton("Apple\nPicking 🍎", Icons.apple),
+                  child: _buildGameButton("Apple\nPicking 🍎", Icons.shopping_basket),
                 ),
                 const SizedBox(width: 12),
                 GestureDetector(

@@ -181,7 +181,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _showSuccessSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xff7f9461),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -192,7 +192,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.red.shade400,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -266,12 +266,12 @@ class _ProfilePageState extends State<ProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
+        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to logout?', style: TextStyle(fontWeight: FontWeight.w500)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           TextButton(
             onPressed: () async {
@@ -285,7 +285,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 );
               }
             },
-            child: const Text('Logout', style: TextStyle(color: Colors.red)),
+            child: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -303,12 +303,12 @@ class _ProfilePageState extends State<ProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w500)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -408,7 +408,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   "Login",
                   style: TextStyle(
                     color: const Color(0xff7f9461),
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
                 ),
@@ -470,6 +470,7 @@ class _ProfilePageState extends State<ProfilePage> {
               "Member since: $formattedDate",
               style: TextStyle(
                 fontSize: 12,
+                fontWeight: FontWeight.bold,
                 color: const Color(0xff7f9461),
                 fontStyle: FontStyle.italic,
               ),
@@ -527,9 +528,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       onChanged: _onNameChanged,
                       decoration: InputDecoration(
                         labelText: 'Name',
-                        labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                        labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                         errorText: _nameError,
-                        errorStyle: const TextStyle(color: Colors.red),
+                        errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -575,9 +576,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       onChanged: _onEmailChanged,
                       decoration: InputDecoration(
                         labelText: 'Email',
-                        labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                        labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                         errorText: _emailError,
-                        errorStyle: const TextStyle(color: Colors.red),
+                        errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -597,6 +598,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       style: const TextStyle(
                         fontSize: 14,
+                        fontWeight: FontWeight.bold,
                         color: Color(0xff7f9461),
                       ),
                     ),
@@ -606,6 +608,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   userEmail,
                   style: TextStyle(
                     fontSize: 14,
+                    fontWeight: FontWeight.bold,
                     color: const Color(0xff7f9461).withOpacity(0.8),
                   ),
                   maxLines: 1,
@@ -693,6 +696,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         "Rank",
                         style: TextStyle(
                           fontSize: 14,
+                          fontWeight: FontWeight.bold,
                           color: const Color(0xff7f9461).withOpacity(0.8),
                         ),
                       ),
@@ -704,7 +708,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   totalUsers > 0
                       ? "You are in the top ${((userRank / totalUsers) * 100).toStringAsFixed(1)}%"
                       : "Ranking available soon",
-                  style: const TextStyle(fontSize: 14, color: Color(0xff7f9461)),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xff7f9461)),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -713,6 +717,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       : "Loading total users...",
                   style: TextStyle(
                     fontSize: 12,
+                    fontWeight: FontWeight.bold,
                     color: const Color(0xff7f9461).withOpacity(0.6),
                   ),
                 ),
@@ -765,14 +770,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: AbsorbPointer(
                   child: TextField(
                     controller: _birthDateController,
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xff7f9461)),
                     decoration: InputDecoration(
                       labelText: 'Birth Date (DD/MM/YYYY)',
-                      labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                      labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                       prefixIcon: Icon(Icons.cake, color: const Color(0xff7f9461)),
                       helperText: 'You must be at least 18 years old',
-                      helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
+                      helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11, fontWeight: FontWeight.bold),
                       errorText: _birthDateError,
-                      errorStyle: const TextStyle(color: Colors.red),
+                      errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -804,10 +810,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 value: gender.isEmpty ? null : gender,
                 decoration: InputDecoration(
                   labelText: 'Gender',
-                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                   prefixIcon: Icon(Icons.transgender, color: const Color(0xff7f9461)),
                   errorText: _genderError,
-                  errorStyle: const TextStyle(color: Colors.red),
+                  errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -827,7 +833,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 items: genderOptions.map((String option) {
                   return DropdownMenuItem<String>(
                     value: option,
-                    child: Text(option, style: const TextStyle(color: Color(0xff7f9461))),
+                    child: Text(option, style: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold)),
                   );
                 }).toList(),
                 onChanged: (String? newValue) {
@@ -851,14 +857,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 controller: _heightController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onHeightChanged,
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xff7f9461)),
                 decoration: InputDecoration(
                   labelText: 'Height (cm)',
-                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                   prefixIcon: Icon(Icons.height, color: const Color(0xff7f9461)),
                   helperText: 'Valid range: 50 - 250 cm',
-                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
+                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11, fontWeight: FontWeight.bold),
                   errorText: _heightError,
-                  errorStyle: const TextStyle(color: Colors.red),
+                  errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -888,14 +895,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 controller: _weightController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 onChanged: _onWeightChanged,
+                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xff7f9461)),
                 decoration: InputDecoration(
                   labelText: 'Weight (kg)',
-                  labelStyle: const TextStyle(color: Color(0xff7f9461)),
+                  labelStyle: const TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.bold),
                   prefixIcon: Icon(Icons.monitor_weight, color: const Color(0xff7f9461)),
                   helperText: 'Valid range: 20 - 300 kg',
-                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11),
+                  helperStyle: TextStyle(color: const Color(0xff7f9461).withOpacity(0.6), fontSize: 11, fontWeight: FontWeight.bold),
                   errorText: _weightError,
-                  errorStyle: const TextStyle(color: Colors.red),
+                  errorStyle: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -1027,6 +1035,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 title,
                 style: TextStyle(
                   fontSize: 14,
+                  fontWeight: FontWeight.bold,
                   color: const Color(0xff7f9461).withOpacity(0.8),
                 ),
                 maxLines: 1,
@@ -1039,7 +1048,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 value,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.bold,
                   color: const Color(0xff7f9461),
                 ),
                 maxLines: 1,
@@ -1097,7 +1106,7 @@ class _ProfilePageState extends State<ProfilePage> {
               style: TextStyle(
                 color: isSelected ? const Color(0xff7f9461) : Colors.grey,
                 fontSize: isSelected ? 10 : 9,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                fontWeight: FontWeight.bold,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,

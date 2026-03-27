@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "644992306444",
+    "firebase_url": "https://appforhumman-default-rtdb.firebaseio.com",
+    "project_id": "appforhumman",
+    "storage_bucket": "appforhumman.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:644992306444:android:a7f648c586999a6af80d29",
+        "android_client_info": {
+          "package_name": "com.bur.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCSJMPz1rZJ8i-pcUK-66TQ0XkJ0hBaJTs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

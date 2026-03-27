@@ -30,7 +30,7 @@ class _LoginState extends State<Login> {
 
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       setState(() {
-        _loginErrorMessage = 'tezt incorrect email or passwotrd';
+        _loginErrorMessage = 'text incorrect email or passwotrd';
       });
       return;
     }
@@ -250,7 +250,7 @@ class _LoginState extends State<Login> {
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
-                          color: Color(0xFFA5B68D),
+                          color: Color(0xFF362427),
                           height: 1.2,
                         ),
                       ),
@@ -264,10 +264,13 @@ class _LoginState extends State<Login> {
                       child: TextField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        style: const TextStyle(
+                          color: Color(0xFF362427), // لون النص عند الكتابة
+                        ),
                         decoration: InputDecoration(
                           hintText: "sara@example.com",
                           hintStyle: const TextStyle(
-                            color: Color(0xFFA5B68D),
+                            color: Color(0xFF707070), // لون الـ placeholder
                             fontSize: 14,
                             fontStyle: FontStyle.italic,
                           ),
@@ -295,10 +298,13 @@ class _LoginState extends State<Login> {
                       child: TextField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
+                        style: const TextStyle(
+                          color: Color(0xFF362427), // لون النص عند الكتابة
+                        ),
                         decoration: InputDecoration(
                           hintText: "•••••••",
                           hintStyle: const TextStyle(
-                            color: Color(0xFFA5B68D),
+                            color: Color(0xFF707070), // لون الـ placeholder
                             fontSize: 14,
                             fontStyle: FontStyle.italic,
                           ),

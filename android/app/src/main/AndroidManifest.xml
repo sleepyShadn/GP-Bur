@@ -9,7 +9,7 @@
 
 
     <application
-        android:label="Bur"
+        android:label="Bur'"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
         <activity

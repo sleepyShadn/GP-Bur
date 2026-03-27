@@ -435,225 +435,170 @@ class _RegisterState extends State<Register> {
                       style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFFA5B68D),
+                        color: Color(0xFF362427),
                       ),
                     ),
                   ),
                   const SizedBox(height: 30),
 
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: _nameController,
-                        decoration: _buildInputDecoration(
-                          "alia",
-                          errorText: _nameError,
-                        ),
-                      ),
-                      if (_nameError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, left: 12),
-                          child: Text(
-                            _nameError!,
-                            style: const TextStyle(color: Colors.red, fontSize: 11),
-                          ),
-                        ),
-                    ],
+                  // Name Field
+                  TextField(
+                    controller: _nameController,
+                    style: const TextStyle(
+                      color: Color(0xFF362427),
+                    ),
+                    decoration: _buildInputDecoration(
+                      "Name",
+                      errorText: _nameError,
+                    ),
                   ),
                   const SizedBox(height: 15),
 
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: _buildInputDecoration(
-                          "sara@gmail.com",
-                          errorText: _emailError,
-                          suffixIcon: _isEmailValid
-                              ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
-                              : null,
+                  // Email Field
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    style: const TextStyle(
+                      color: Color(0xFF362427),
+                    ),
+                    decoration: _buildInputDecoration(
+                      "sara@gmail.com",
+                      errorText: _emailError,
+                      suffixIcon: _isEmailValid
+                          ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                          : null,
+                    ),
+                    onChanged: (value) {
+                      _validateEmailFormat();
+                    },
+                  ),
+                  const SizedBox(height: 15),
+
+                  // Password Field
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    style: const TextStyle(
+                      color: Color(0xFF362427),
+                    ),
+                    decoration: _buildInputDecoration(
+                      "Password123!",
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: const Color(0xFFA5B68D),
+                          size: 20,
                         ),
-                        onChanged: (value) {
-                          _validateEmailFormat();
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
                         },
                       ),
-                      if (_emailError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, left: 12),
-                          child: Text(
-                            _emailError!,
-                            style: const TextStyle(color: Colors.red, fontSize: 11),
-                          ),
-                        ),
-                    ],
+                      errorText: _passwordError,
+                    ),
                   ),
-                  const SizedBox(height: 15),
 
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      TextField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        decoration: _buildInputDecoration(
-                          "Password123!",
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_off_outlined
-                                  : Icons.visibility_outlined,
-                              color: const Color(0xFFA5B68D),
-                              size: 20,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _obscurePassword = !_obscurePassword;
-                              });
-                            },
+                  Container(
+                    margin: const EdgeInsets.only(top: 8, bottom: 8),
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE7CCCC).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getPasswordRequirementsText(),
+                          style: TextStyle(
+                            color: (_hasMinLength &&
+                                _hasLowercase &&
+                                _hasUppercase &&
+                                _hasNumber &&
+                                _hasSpecialChar)
+                                ? Colors.green
+                                : const Color(0xFFA5B68D),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
                           ),
-                          errorText: _passwordError,
                         ),
-                      ),
-
-                      Container(
-                        margin: const EdgeInsets.only(top: 8, left: 12, bottom: 8),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE7CCCC).withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 4),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
                           children: [
-                            Text(
-                              _getPasswordRequirementsText(),
-                              style: TextStyle(
-                                color: (_hasMinLength &&
-                                    _hasLowercase &&
-                                    _hasUppercase &&
-                                    _hasNumber &&
-                                    _hasSpecialChar)
-                                    ? Colors.green
-                                    : const Color(0xFFA5B68D),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 4,
-                              children: [
-                                _buildRequirementChip("6+ chars", _hasMinLength),
-                                _buildRequirementChip("a-z", _hasLowercase),
-                                _buildRequirementChip("A-Z", _hasUppercase),
-                                _buildRequirementChip("0-9", _hasNumber),
-                                _buildRequirementChip("!@#\$%", _hasSpecialChar),
-                              ],
-                            ),
+                            _buildRequirementChip("6+ chars", _hasMinLength),
+                            _buildRequirementChip("a-z", _hasLowercase),
+                            _buildRequirementChip("A-Z", _hasUppercase),
+                            _buildRequirementChip("0-9", _hasNumber),
+                            _buildRequirementChip("!@#\$%", _hasSpecialChar),
                           ],
                         ),
-                      ),
-
-                      if (_passwordError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, left: 12),
-                          child: Text(
-                            _passwordError!,
-                            style: const TextStyle(color: Colors.red, fontSize: 11),
-                          ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 15),
 
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      GestureDetector(
-                        onTap: _selectDate,
-                        child: AbsorbPointer(
-                          child: TextField(
-                            controller: _dobController,
-                            keyboardType: TextInputType.datetime,
-                            decoration: _buildInputDecoration(
-                              "Select your date of birth",
-                              icon: Icons.calendar_month,
-                              errorText: _dobError,
-                            ),
-                          ),
+                  // Date of Birth Field
+                  GestureDetector(
+                    onTap: _selectDate,
+                    child: AbsorbPointer(
+                      child: TextField(
+                        controller: _dobController,
+                        keyboardType: TextInputType.datetime,
+                        style: const TextStyle(
+                          color: Color(0xFF362427),
+                        ),
+                        decoration: _buildInputDecoration(
+                          "Select your date of birth",
+                          icon: Icons.calendar_month,
+                          errorText: _dobError,
                         ),
                       ),
-                      if (_dobError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4, left: 12),
-                          child: Text(
-                            _dobError!,
-                            style: const TextStyle(color: Colors.red, fontSize: 11),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                   const SizedBox(height: 15),
 
+                  // Weight and Height Row
                   Row(
                     children: [
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextField(
-                              controller: _weightController,
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              decoration: _buildInputDecoration(
-                                "70.5",
-                                suffix: "kg",
-                                errorText: _weightError,
-                              ),
-                            ),
-                            if (_weightError != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4, left: 12),
-                                child: Text(
-                                  _weightError!,
-                                  style: const TextStyle(color: Colors.red, fontSize: 11),
-                                ),
-                              ),
-                          ],
+                        child: TextField(
+                          controller: _weightController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          style: const TextStyle(
+                            color: Color(0xFF362427),
+                          ),
+                          decoration: _buildInputDecoration(
+                            "70.5",
+                            suffix: "kg",
+                            errorText: _weightError,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 15),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            TextField(
-                              controller: _heightController,
-                              keyboardType: TextInputType.number,
-                              decoration: _buildInputDecoration(
-                                "175",
-                                suffix: "cm",
-                                errorText: _heightError,
-                              ),
-                            ),
-                            if (_heightError != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4, left: 12),
-                                child: Text(
-                                  _heightError!,
-                                  style: const TextStyle(color: Colors.red, fontSize: 11),
-                                ),
-                              ),
-                          ],
+                        child: TextField(
+                          controller: _heightController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(
+                            color: Color(0xFF362427),
+                          ),
+                          decoration: _buildInputDecoration(
+                            "175",
+                            suffix: "cm",
+                            errorText: _heightError,
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 15),
 
+                  // Gender Field
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     height: 55,
@@ -666,8 +611,9 @@ class _RegisterState extends State<Register> {
                         const Text(
                           "Gender",
                           style: TextStyle(
-                              color: Color(0xFF362427),
-                              fontWeight: FontWeight.w500),
+                            color: Color(0xFFA5B68D),
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         const Spacer(),
                         _buildGenderOption("Female"),
@@ -678,6 +624,7 @@ class _RegisterState extends State<Register> {
                   ),
                   const SizedBox(height: 40),
 
+                  // Register Button
                   SizedBox(
                     width: double.infinity,
                     height: 55,
@@ -711,27 +658,31 @@ class _RegisterState extends State<Register> {
                   ),
                   const SizedBox(height: 20),
 
+                  // Login Link
                   Center(
                     child: TextButton(
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                              builder: (context) => const Login()),
+                            builder: (context) => const Login(),
+                          ),
                         );
                       },
                       child: RichText(
                         text: const TextSpan(
                           style: TextStyle(
-                              color: Color(0xFF362427),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500),
+                            color: Color(0xFF362427),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
                           children: [
                             TextSpan(text: "ALREADY HAVE AN ACCOUNT? "),
                             TextSpan(
                               text: "LOG IN",
                               style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  decoration: TextDecoration.underline),
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
                             ),
                           ],
                         ),
@@ -759,8 +710,10 @@ class _RegisterState extends State<Register> {
             color: const Color(0xFFA5B68D),
           ),
           const SizedBox(width: 4),
-          Text(gender,
-              style: const TextStyle(color: Color(0xFF362427), fontSize: 13)),
+          Text(
+            gender,
+            style: const TextStyle(color: Color(0xFF362427), fontSize: 13),
+          ),
         ],
       ),
     );
@@ -797,7 +750,7 @@ class _RegisterState extends State<Register> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        color: Color(0xFF362427),
+        color: Color(0xFF707070),
         fontSize: 14,
         fontStyle: FontStyle.italic,
       ),
