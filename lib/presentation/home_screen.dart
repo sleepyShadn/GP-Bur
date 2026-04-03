@@ -47,6 +47,12 @@ class _HomeScreenState extends State<HomeScreen> {
   int _todayAnalysisCount = 0;
   List<String> _recentDiagnoses = [];
 
+  // Question management UI state
+  bool _isCollectingInfo = false;
+  String _currentQuestion = '';
+  int _remainingQuestions = 0;
+  bool _isGeneratingQuestions = false;
+
   @override
   void initState() {
     super.initState();
@@ -124,13 +130,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (available) {
         setState(() => _isListening = true);
 
-        // الحصول على قائمة اللغات
         var locales = await _speech.locales();
 
-        // البحث عن اللغة الإنجليزية فقط
         var englishLocale = locales.firstWhere(
               (locale) => locale.localeId.contains('en'),
-          orElse: () => locales.first, // إذا لم يوجد انجليزي، استخدم الافتراضي
+          orElse: () => locales.first,
         );
 
         _speech.listen(
@@ -139,7 +143,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _textController.text = val.recognizedWords;
             });
           },
-          localeId: englishLocale.localeId, // فرض الإنجليزية
+          localeId: englishLocale.localeId,
           listenOptions: stt.SpeechListenOptions(
             listenMode: stt.ListenMode.dictation,
           ),
@@ -151,14 +155,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-
   void _showDailyLimitMessage() {
     _logic.showDailyLimitMessage(context);
   }
 
-  Future<void> _analyzeMood() async {
+  // NEW: Start the question collection process
+  Future<void> _startQuestionCollection() async {
     if (_textController.text.isEmpty) {
-      _logic.showErrorDialog(context, 'Please enter or speak your mood first');
+      _logic.showErrorDialog(context, 'Please enter or speak about how you\'re feeling first');
       return;
     }
 
@@ -167,28 +171,107 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    setState(() => _isAnalyzing = true);
+    setState(() {
+      _isGeneratingQuestions = true;
+      _isCollectingInfo = false;
+    });
 
     final isValid = await _data.isValidText(_textController.text);
     if (!isValid) {
       _logic.showRandomTextError(context);
-      setState(() => _isAnalyzing = false);
+      setState(() {
+        _isGeneratingQuestions = false;
+      });
       return;
     }
 
     final isPositive = await _data.checkForPositiveSentiment(_textController.text);
     if (isPositive) {
       _logic.showPositivePopup(context);
-      setState(() => _isAnalyzing = false);
+      setState(() {
+        _isGeneratingQuestions = false;
+      });
       return;
     }
 
-    final result = await _data.analyzeMood(_textController.text, _classifications);
+    // Generate dynamic questions based on input
+    bool success = await _data.startCollectingInfo(_textController.text);
+
+    if (success && mounted) {
+      setState(() {
+        _isGeneratingQuestions = false;
+        _isCollectingInfo = true;
+        _updateCurrentQuestion();
+      });
+    } else {
+      setState(() {
+        _isGeneratingQuestions = false;
+      });
+      _logic.showErrorDialog(context, 'Unable to generate questions. Please try again.');
+    }
+  }
+
+  void _updateCurrentQuestion() {
+    if (_data.isCollectingInfo()) {
+      String? question = _data.getCurrentQuestionText();
+      int remaining = _data.getRemainingQuestionsCount();
+      setState(() {
+        _currentQuestion = question ?? 'No question available';
+        _remainingQuestions = remaining;
+      });
+    } else {
+      setState(() {
+        _isCollectingInfo = false;
+        _currentQuestion = '';
+        _remainingQuestions = 0;
+      });
+    }
+  }
+
+  // NEW: Submit answer during question collection
+  Future<void> _submitAnswer() async {
+    if (_textController.text.isEmpty) {
+      _logic.showErrorDialog(context, 'Please enter your answer');
+      return;
+    }
+
+    bool isComplete = await _data.submitAnswer(_textController.text);
+
+    if (isComplete) {
+      // All questions answered - now analyze with complete info
+      setState(() {
+        _isCollectingInfo = false;
+        _isAnalyzing = true;
+      });
+
+      await _performAnalysisWithCollectedInfo();
+    } else {
+      // More questions remaining
+      _textController.clear();
+      _updateCurrentQuestion();
+
+      // Show success feedback
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Answer recorded. Next question below.'),
+          duration: Duration(seconds: 1),
+          backgroundColor: Color(0xff7f9461),
+        ),
+      );
+    }
+  }
+
+  // NEW: Perform analysis using all collected information
+  Future<void> _performAnalysisWithCollectedInfo() async {
+    final collectedInfo = _data.getCollectedInfo();
+    final initialInput = collectedInfo['initial_input'] ?? '';
+
+    final result = await _data.analyzeMood(initialInput, _classifications);
 
     if (result != null && mounted) {
       final saved = await _data.saveAnalysisToFirestore(
         userId: _userId,
-        text: _textController.text,
+        text: initialInput,
         classification: result['classification'],
         goal: result['goal'],
         startDate: DateTime.now(),
@@ -200,14 +283,31 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _todayAnalysisCount++;
           _textController.clear();
+          _isAnalyzing = false;
         });
         await _checkForRecurringDiagnosis(result['classification']);
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Analysis complete! Diagnosis: ${result['classification']}'),
+            backgroundColor: const Color(0xff7f9461),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+        setState(() => _isAnalyzing = false);
+        _logic.showErrorDialog(context, 'Error saving analysis');
       }
     } else {
-      _logic.showErrorDialog(context, result?['error'] ?? 'Error analyzing mood');
+      setState(() => _isAnalyzing = false);
+      _logic.showErrorDialog(context, 'Error analyzing your information');
     }
+  }
 
-    setState(() => _isAnalyzing = false);
+  // Original analyze method - now redirects to question collection
+  Future<void> _analyzeMood() async {
+    await _startQuestionCollection();
   }
 
   Future<void> _checkForRecurringDiagnosis(String newDiagnosis) async {
@@ -226,7 +326,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final success = await _data.toggleActivity(_userId, _currentAnalysisId, index, activity);
 
     if (success && mounted) {
-      // Safe conversion from num to int
       int pointsToAdd = (activity['points'] as num?)?.toInt() ?? 5;
       setState(() {
         _userPoints += pointsToAdd;
@@ -350,6 +449,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+
+                // Main input area
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
@@ -369,8 +470,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: _textController,
                         maxLines: 4,
                         minLines: 3,
+                        enabled: !_isAnalyzing && !_isGeneratingQuestions,
                         decoration: InputDecoration(
-                          hintText: "Tell me how you're feeling...",
+                          hintText: _isCollectingInfo
+                              ? "Type your answer here..."
+                              : "Tell me how you're feeling...",
                           hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                           filled: true,
                           fillColor: const Color(0xFFE7CCCC).withOpacity(0.3),
@@ -386,7 +490,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: _isAnalyzing ? null : _listen,
+                              onPressed: (_isAnalyzing || _isCollectingInfo || _isGeneratingQuestions) ? null : _listen,
                               icon: Icon(
                                 _isListening ? Icons.mic : Icons.mic_none,
                                 color: Colors.white,
@@ -409,16 +513,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: (_isAnalyzing || _todayAnalysisCount >= 2) ? null : _analyzeMood,
+                              onPressed: (_isAnalyzing || _todayAnalysisCount >= 2 || _isGeneratingQuestions)
+                                  ? null
+                                  : (_isCollectingInfo ? _submitAnswer : _analyzeMood),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: _todayAnalysisCount >= 2 ? Colors.grey : const Color(0xff7f9461),
+                                backgroundColor: _todayAnalysisCount >= 2
+                                    ? Colors.grey
+                                    : const Color(0xff7f9461),
                                 padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(25),
                                 ),
                                 elevation: 0,
                               ),
-                              child: _isAnalyzing
+                              child: _isAnalyzing || _isGeneratingQuestions
                                   ? const SizedBox(
                                 width: 20,
                                 height: 20,
@@ -428,7 +536,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                               )
                                   : Text(
-                                _todayAnalysisCount >= 2 ? "Daily Limit Reached" : "Analyze",
+                                _isCollectingInfo
+                                    ? "Submit Answer"
+                                    : (_todayAnalysisCount >= 2 ? "Daily Limit Reached" : "Start"),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -442,7 +552,130 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
+
+                // NEW: Questions display area - shows current question below input
+                if (_isCollectingInfo && _currentQuestion.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff7f9461).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: const Color(0xff7f9461).withOpacity(0.3),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xff7f9461).withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.question_answer,
+                                color: Color(0xff7f9461),
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                "Question ${_data.getAllQuestions().length - _remainingQuestions + 1} of ${_data.getAllQuestions().length}",
+                                style: const TextStyle(
+                                  color: Color(0xff7f9461),
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          _currentQuestion,
+                          style: const TextStyle(
+                            color: Color(0xff7f9461),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color: const Color(0xff7f9461).withOpacity(0.7),
+                              ),
+                              const SizedBox(width: 8),
+                              const Expanded(
+                                child: Text(
+                                  "Type your answer in the box above and click 'Submit Answer'",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xff7f9461),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Loading questions indicator
+                if (_isGeneratingQuestions) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xff7f9461).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Column(
+                      children: [
+                        SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Color(0xff7f9461),
+                          ),
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          "Generating personalized questions for you...",
+                          style: TextStyle(
+                            color: Color(0xff7f9461),
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
                 const SizedBox(height: 24),
+
+                // Analysis result display
                 if (_currentClassification.isNotEmpty) ...[
                   Container(
                     width: double.infinity,
@@ -477,6 +710,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 20),
                 ],
+
                 if (_goalDurationDays != null)
                   Container(
                     width: double.infinity,
@@ -502,6 +736,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ),
+
                 if (_currentGoal.isNotEmpty)
                   _buildCard(
                     icon: Icons.flag,
@@ -509,6 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     content: _currentGoal,
                   ),
                 const SizedBox(height: 20),
+
                 if (_currentActivities.isNotEmpty)
                   _buildCard(
                     icon: Icons.star,
@@ -822,4 +1058,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-
