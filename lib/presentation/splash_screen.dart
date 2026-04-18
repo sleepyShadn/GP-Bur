@@ -3,11 +3,42 @@ import 'package:flutter/material.dart';
 import '../../domain/splash_logic.dart';
 import '../../data/splash_data.dart';
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
+  SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   final SplashLogic _logic = SplashLogic();
   final SplashData _data = SplashData();
+  late final AnimationController _pulseController;
+  bool _showContent = false;
+  bool _showBottomPanel = false;
 
-  SplashScreen({super.key});
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    )..repeat(reverse: true);
+
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (mounted) setState(() => _showContent = true);
+    });
+    Future.delayed(const Duration(milliseconds: 260), () {
+      if (mounted) setState(() => _showBottomPanel = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,102 +47,178 @@ class SplashScreen extends StatelessWidget {
       body: SafeArea(
         child: Stack(
           children: [
-            Center(
-              child: Column(
-                children: [
-                  const SizedBox(height: 60),
-                  Text(
-                    _logic.welcomeText,
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xff7f9461),),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 700),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    _logic.colorPinkish,
+                    _logic.colorCream.withOpacity(0.92),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedOpacity(
+              duration: const Duration(milliseconds: 650),
+              opacity: _showContent ? 1 : 0,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 650),
+                curve: Curves.easeOutCubic,
+                offset: _showContent ? Offset.zero : const Offset(0, 0.06),
+                child: Center(
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 60),
+                      Text(
+                        _logic.welcomeText,
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xff7f9461),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _logic.subtitleText,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xff7f9461),
+                        ),
+                      ),
+                      const SizedBox(height: 30),
+                      AnimatedBuilder(
+                        animation: _pulseController,
+                        builder: (context, child) {
+                          final scale = 0.98 + (_pulseController.value * 0.04);
+                          return Transform.scale(scale: scale, child: child);
+                        },
+                        child: Container(
+                          height: 220,
+                          width: 290,
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(28),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _logic.colorGreenDark.withOpacity(0.14),
+                                blurRadius: 24,
+                                offset: const Offset(0, 12),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(26),
+                            child: Image.asset(
+                              _data.logoPath,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    _logic.subtitleText,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xff7f9461),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  Image.asset(
-                    _data.logoPath,
-                    height: 240,
-                    width: 290,
-                    fit: BoxFit.contain,
-                  ),
-                ],
+                ),
               ),
             ),
             Align(
               alignment: Alignment.bottomCenter,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    height: 300,
-                    width: double.infinity,
-                    child: Stack(
-                      alignment: Alignment.bottomCenter,
-                      children: [
-                        Positioned(
-                          bottom: 10,
-                          child: Container(
-                            width: 300,
-                            height: 300,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: _logic.colorCream.withOpacity(0.4),
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 650),
+                opacity: _showBottomPanel ? 1 : 0,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 650),
+                  curve: Curves.easeOutCubic,
+                  offset:
+                      _showBottomPanel ? Offset.zero : const Offset(0, 0.14),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        height: 300,
+                        width: double.infinity,
+                        child: Stack(
+                          alignment: Alignment.bottomCenter,
+                          children: [
+                            Positioned(
+                              bottom: 14,
+                              child: Container(
+                                width: 310,
+                                height: 310,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _logic.colorCream.withOpacity(0.45),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 42,
+                              child: Container(
+                                width: 250,
+                                height: 250,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: Colors.white.withOpacity(0.18),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: double.infinity,
+                        height: 250,
+                        decoration: BoxDecoration(
+                          color: _logic.colorGreenLight,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(40),
+                            topRight: Radius.circular(40),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _logic.colorGreenDark.withOpacity(0.10),
+                              blurRadius: 18,
+                              offset: const Offset(0, -2),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 40),
+                            child: SizedBox(
+                              width: 280,
+                              height: 55,
+                              child: ElevatedButton(
+                                onPressed: () async {
+                                  await _data.navigateFromSplash(context);
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: _logic.colorCream,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  shadowColor:
+                                      _logic.colorGreenDark.withOpacity(0.12),
+                                ),
+                                child: Text(
+                                  _logic.buttonText,
+                                  style: const TextStyle(
+                                    color: Color(0xff7f9461),
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    width: double.infinity,
-                    height: 250,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFC1CFA1),
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(40),
-                        topRight: Radius.circular(40),
                       ),
-                    ),
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 40),
-                        child: SizedBox(
-                          width: 280,
-                          height: 55,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              _data.navigateToAuthSelection(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _logic.colorCream,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: Text(
-                              _logic.buttonText,
-                              style: const TextStyle(
-                                color: Color(0xff7f9461),
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ],

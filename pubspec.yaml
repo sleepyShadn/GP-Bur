@@ -24,6 +24,9 @@ dependencies:
   pdf: ^3.12.0
   share_plus: ^12.0.1
   flutter_launcher_icons: ^0.14.4
+  lottie: ^3.3.3
+  audioplayers: ^6.6.0
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:
@@ -45,6 +48,25 @@ flutter:
   assets:
     - assets/logo.png
     - assets/icon.jpeg
+    - assets/animations/sky.json
+    - assets/animations/flower_animation.json
+    - assets/animations/Flower Animation.json
+    - assets/animations/Flower falling Lottie JSON animation.json
+    - assets/animations/Animation_background.json
+    - assets/animations/Scissor Snip.json
+    - assets/animations/PLANT 123.json
+    - assets/animations/Plant Gray.json
+    - assets/animations/flower.json
+    - assets/animations/water.json
+    - assets/animations/Morning Background.json
+    - assets/animations/tractor.json
+    - assets/images/watering/watering_bg_spring.png
+    - assets/images/watering/watering_bg_summer.png
+    - assets/images/leaf_main.png
+    - assets/images/tree_1.png
+    - assets/images/tree_2.png
+    - assets/images/tree_3.png
+    - assets/sounds/
   #  - images/a_dot_ham.jpeg
   # fonts:
   #   - family: Schyler

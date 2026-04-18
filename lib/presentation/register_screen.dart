@@ -41,6 +41,11 @@ class _RegisterState extends State<Register> {
   bool _isEmailValid = false;
   DateTime? _selectedDate;
 
+  DateTime get _maxSelectableBirthDate {
+    final now = DateTime.now();
+    return DateTime(now.year - 18, now.month, now.day);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -159,12 +164,12 @@ class _RegisterState extends State<Register> {
   }
 
   Future<void> _selectDate() async {
+    final maxBirthDate = _maxSelectableBirthDate;
     DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDate ??
-          DateTime.now().subtract(const Duration(days: 6570)),
+      initialDate: _selectedDate ?? maxBirthDate,
       firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+      lastDate: maxBirthDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -172,7 +177,7 @@ class _RegisterState extends State<Register> {
               primary: Color(0xFFA5B68D),
               onPrimary: Colors.white,
               surface: Color(0xFFEDE8DC),
-              onSurface: Color(0xFFA5B68D),
+              onSurface: Color(0xFF4E342E),
             ),
           ),
           child: child!,
@@ -329,33 +334,81 @@ class _RegisterState extends State<Register> {
     return showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFFEDE8DC),
-        title: const Text(
-          'Data Sharing Consent',
-          style: TextStyle(color: Color(0xFFA5B68D), fontWeight: FontWeight.bold),
+        backgroundColor: const Color(0xFFF7F3EA),
+        elevation: 8,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color: const Color(0xFFA5B68D).withOpacity(0.25),
+            width: 1.1,
+          ),
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+        contentPadding: const EdgeInsets.fromLTRB(24, 8, 24, 14),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        title: const Row(
+          children: [
+            Icon(
+              Icons.verified_user_outlined,
+              color: Color(0xFFA5B68D),
+              size: 24,
+            ),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Data Sharing Consent',
+                style: TextStyle(
+                  color: Color(0xFF6B5744),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
         ),
         content: const Text(
           'We would like to collect and use your personal data to improve your experience. '
-              'This includes your name, email, date of birth, weight, height, and gender. '
-              'Do you consent to sharing this information?',
-          style: TextStyle(color: Color(0xFFA5B68D)),
+          'This includes your name, email, date of birth, weight, height, and gender. '
+          'Do you consent to sharing this information?',
+          style: TextStyle(
+            color: Color(0xFF6E5A46),
+            fontSize: 14,
+            height: 1.45,
+            fontWeight: FontWeight.w500,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
             child: const Text(
               'No, thanks',
-              style: TextStyle(color: Color(0xFFA5B68D)),
+              style: TextStyle(
+                color: Color(0xFF7C6A56),
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFA5B68D),
+              foregroundColor: Colors.white,
+              elevation: 1,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
             child: const Text(
               'I Consent',
-              style: TextStyle(color: Colors.white),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.3,
+              ),
             ),
           ),
         ],
@@ -401,20 +454,40 @@ class _RegisterState extends State<Register> {
       backgroundColor: const Color(0xFFEDE8DC),
       body: Stack(
         children: [
-          Positioned(
-            top: -50,
-            left: -30,
-            child: CircleAvatar(
-              radius: 80,
-              backgroundColor: const Color(0xFFE7CCCC).withOpacity(0.4),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFFEDE8DC),
+                  const Color(0xFFE7CCCC).withOpacity(0.42),
+                ],
+              ),
             ),
           ),
           Positioned(
-            bottom: 150,
+            top: -40,
+            right: -20,
+            child: CircleAvatar(
+              radius: 95,
+              backgroundColor: const Color(0xFFC1CFA1).withOpacity(0.22),
+            ),
+          ),
+          Positioned(
+            top: 120,
+            left: -34,
+            child: CircleAvatar(
+              radius: 72,
+              backgroundColor: const Color(0xFFE7CCCC).withOpacity(0.34),
+            ),
+          ),
+          Positioned(
+            bottom: 120,
             right: -40,
             child: CircleAvatar(
               radius: 100,
-              backgroundColor: const Color(0xFFC1CFA1).withOpacity(0.3),
+              backgroundColor: const Color(0xFFC1CFA1).withOpacity(0.18),
             ),
           ),
           SafeArea(
@@ -423,12 +496,30 @@ class _RegisterState extends State<Register> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(height: 10),
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Color(0xFFA5B68D)),
-                    onPressed: () => Navigator.pop(context),
+                  const SizedBox(height: 18),
+                  Center(
+                    child: Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.82),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFA5B68D).withOpacity(0.20),
+                            blurRadius: 16,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.person_add_alt_1_rounded,
+                        color: Color(0xFFA5B68D),
+                        size: 30,
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 14),
                   const Center(
                     child: Text(
                       "Create your account",
@@ -439,43 +530,73 @@ class _RegisterState extends State<Register> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 30),
-
-                  // Name Field
-                  TextField(
-                    controller: _nameController,
-                    style: const TextStyle(
-                      color: Color(0xFF362427),
-                    ),
-                    decoration: _buildInputDecoration(
-                      "Name",
-                      errorText: _nameError,
+                  const SizedBox(height: 8),
+                  const Center(
+                    child: Text(
+                      "Start your personalized wellness journey",
+                      style: TextStyle(
+                        color: Color(0xFF7D7468),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 15),
-
-                  // Email Field
-                  TextField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    style: const TextStyle(
-                      color: Color(0xFF362427),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.72),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.72),
+                        width: 1.1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFA5B68D).withOpacity(0.14),
+                          blurRadius: 18,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
-                    decoration: _buildInputDecoration(
-                      "sara@gmail.com",
-                      errorText: _emailError,
-                      suffixIcon: _isEmailValid
-                          ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
-                          : null,
-                    ),
-                    onChanged: (value) {
-                      _validateEmailFormat();
-                    },
-                  ),
-                  const SizedBox(height: 15),
+                    child: Column(
+                      children: [
 
-                  // Password Field
-                  TextField(
+                        // Name Field
+                        TextField(
+                          controller: _nameController,
+                          style: const TextStyle(
+                            color: Color(0xFF362427),
+                          ),
+                          decoration: _buildInputDecoration(
+                            "Name",
+                            errorText: _nameError,
+                          ),
+                        ),
+                        const SizedBox(height: 15),
+
+                        // Email Field
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          style: const TextStyle(
+                            color: Color(0xFF362427),
+                          ),
+                          decoration: _buildInputDecoration(
+                            "sara@gmail.com",
+                            errorText: _emailError,
+                            suffixIcon: _isEmailValid
+                                ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                                : null,
+                          ),
+                          onChanged: (value) {
+                            _validateEmailFormat();
+                          },
+                        ),
+                        const SizedBox(height: 15),
+
+                        // Password Field
+                        TextField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
                     style: const TextStyle(
@@ -501,14 +622,14 @@ class _RegisterState extends State<Register> {
                     ),
                   ),
 
-                  Container(
-                    margin: const EdgeInsets.only(top: 8, bottom: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE7CCCC).withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
+                        Container(
+                          margin: const EdgeInsets.only(top: 8, bottom: 8),
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE7CCCC).withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -538,12 +659,12 @@ class _RegisterState extends State<Register> {
                           ],
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 15),
+                          ),
+                        ),
+                        const SizedBox(height: 15),
 
-                  // Date of Birth Field
-                  GestureDetector(
+                        // Date of Birth Field
+                        GestureDetector(
                     onTap: _selectDate,
                     child: AbsorbPointer(
                       child: TextField(
@@ -560,10 +681,10 @@ class _RegisterState extends State<Register> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 15),
+                        const SizedBox(height: 15),
 
-                  // Weight and Height Row
-                  Row(
+                        // Weight and Height Row
+                        Row(
                     children: [
                       Expanded(
                         child: TextField(
@@ -596,10 +717,10 @@ class _RegisterState extends State<Register> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 15),
+                        const SizedBox(height: 15),
 
-                  // Gender Field
-                  Container(
+                        // Gender Field
+                        Container(
                     padding: const EdgeInsets.symmetric(horizontal: 15),
                     height: 55,
                     decoration: BoxDecoration(
@@ -622,20 +743,24 @@ class _RegisterState extends State<Register> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 40),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
 
                   // Register Button
                   SizedBox(
                     width: double.infinity,
-                    height: 55,
+                    height: 58,
                     child: ElevatedButton(
                       onPressed: _isLoading ? null : _registerUser,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFA5B68D),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                        elevation: 0,
+                        elevation: 2,
+                        shadowColor: const Color(0xFFA5B68D).withOpacity(0.45),
                       ),
                       child: _isLoading
                           ? const SizedBox(
@@ -660,31 +785,47 @@ class _RegisterState extends State<Register> {
 
                   // Login Link
                   Center(
-                    child: TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const Login(),
-                          ),
-                        );
-                      },
-                      child: RichText(
-                        text: const TextSpan(
-                          style: TextStyle(
-                            color: Color(0xFF362427),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          children: [
-                            TextSpan(text: "ALREADY HAVE AN ACCOUNT? "),
-                            TextSpan(
-                              text: "LOG IN",
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.underline,
-                              ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const Login(),
                             ),
-                          ],
+                          );
+                        },
+                        child: RichText(
+                          text: const TextSpan(
+                            style: TextStyle(
+                              color: Color(0xFF6E6A5E),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            children: [
+                              TextSpan(text: "Already have an account? "),
+                              TextSpan(
+                                text: "Log in",
+                                style: TextStyle(
+                                  color: Color(0xFFA5B68D),
+                                  fontWeight: FontWeight.bold,
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

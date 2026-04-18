@@ -15,7 +15,13 @@ class ApplePickingData {
     return null;
   }
 
-  Future<void> saveScoreToFirebase(String userId, int score, int missedApples, int timeLeft) async {
+  Future<void> saveScoreToFirebase(
+    String userId,
+    int score,
+    int caughtApples,
+    int missedApples,
+    int timeLeft,
+  ) async {
     try {
       final userRef = _firestore.collection('users').doc(userId);
       final gameStatsRef = _firestore.collection('game_stats').doc(userId);
@@ -29,7 +35,7 @@ class ApplePickingData {
         int newHighest = score > currentHighest ? score : currentHighest;
 
         await gameStatsRef.update({
-          'totalApplesPicked': FieldValue.increment(score ~/ 2),
+          'totalApplesPicked': FieldValue.increment(caughtApples),
           'totalGamesPlayed': FieldValue.increment(1),
           'highestScore': newHighest,
           'lastPlayed': FieldValue.serverTimestamp(),
@@ -37,7 +43,7 @@ class ApplePickingData {
       } else {
         await gameStatsRef.set({
           'uid': userId,
-          'totalApplesPicked': score ~/ 2,
+          'totalApplesPicked': caughtApples,
           'totalGamesPlayed': 1,
           'highestScore': score,
           'lastPlayed': FieldValue.serverTimestamp(),
@@ -50,7 +56,7 @@ class ApplePickingData {
         'uid': userId,
         'gameName': 'Apple Picking',
         'score': score,
-        'applesPicked': score ~/ 2,
+        'applesPicked': caughtApples,
         'missedApples': missedApples,
         'timeRemaining': timeLeft,
         'playedAt': FieldValue.serverTimestamp(),

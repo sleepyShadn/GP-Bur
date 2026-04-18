@@ -18,10 +18,11 @@ class CuttingLeavesData {
   Future<void> saveScoreToFirebase(
       String userId,
       int pointsEarned,
-      int leavesCut,
-      int totalLeaves,
+      int rosesHarvested,
+      int targetCount,
       bool won,
-      String difficulty,
+      int level,
+      String objective,
       int timeLeft,
       ) async {
     try {
@@ -39,7 +40,7 @@ class CuttingLeavesData {
         int newHighest = pointsEarned > currentHighest ? pointsEarned : currentHighest;
 
         await gameStatsRef.update({
-          'totalLeavesCut': FieldValue.increment(leavesCut),
+          'totalRosesHarvested': FieldValue.increment(rosesHarvested),
           'totalGamesPlayed': FieldValue.increment(1),
           'totalWins': FieldValue.increment(won ? 1 : 0),
           'highestScore': newHighest,
@@ -48,24 +49,25 @@ class CuttingLeavesData {
       } else {
         await gameStatsRef.set({
           'uid': userId,
-          'totalLeavesCut': leavesCut,
+          'totalRosesHarvested': rosesHarvested,
           'totalGamesPlayed': 1,
           'totalWins': won ? 1 : 0,
           'highestScore': pointsEarned,
           'lastPlayed': FieldValue.serverTimestamp(),
-          'gameName': 'Cutting Leaves',
+          'gameName': 'Rose Harvest',
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
 
       await _firestore.collection('game_history').add({
         'uid': userId,
-        'gameName': 'Cutting Leaves',
+        'gameName': 'Rose Harvest',
         'score': pointsEarned,
-        'leavesCut': leavesCut,
-        'totalLeaves': totalLeaves,
+        'rosesHarvested': rosesHarvested,
+        'targetCount': targetCount,
         'won': won,
-        'difficulty': difficulty,
+        'level': level,
+        'objective': objective,
         'timeRemaining': timeLeft,
         'playedAt': FieldValue.serverTimestamp(),
       });

@@ -1,6 +1,7 @@
 // ========== lib/data/profile_data.dart ==========
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfileData {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -100,6 +101,8 @@ class ProfileData {
   }
 
   Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('remember_me', false);
     await _auth.signOut();
   }
 }

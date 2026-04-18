@@ -6,7 +6,7 @@ import 'dart:async';
 import '../../domain/garden_logic.dart';
 import '../../data/garden_data.dart';
 import 'apple_picking_screen.dart';
-import 'cutting_leaves_screen.dart';
+import 'harvest_run_screen.dart';
 import 'home_screen.dart';
 import 'analysis_screen.dart';
 import 'profile_screen.dart';
@@ -622,8 +622,8 @@ class _GardenPageState extends State<GardenPage> {
                 ),
                 const SizedBox(width: 12),
                 GestureDetector(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const CuttingLeavesScreen())),
-                  child: _buildGameButton("Leaves\nCutting 🍃", Icons.forest),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const HarvestRunScreen())),
+                  child: _buildGameButton("Harvest\nRun 🧺", Icons.shopping_basket_outlined),
                 ),
                 const SizedBox(width: 12),
                 GestureDetector(
