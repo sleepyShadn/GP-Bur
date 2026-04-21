@@ -810,17 +810,17 @@ class _RegisterState extends State<Register> {
                         child: RichText(
                           text: const TextSpan(
                             style: TextStyle(
-                              color: Color(0xFF6E6A5E),
+                              color: Color(0xFF2B2926),
                               fontSize: 13,
-                              fontWeight: FontWeight.w500,
+                              fontWeight: FontWeight.w600,
                             ),
                             children: [
                               TextSpan(text: "Already have an account? "),
                               TextSpan(
                                 text: "Log in",
                                 style: TextStyle(
-                                  color: Color(0xFFA5B68D),
-                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF356B24),
+                                  fontWeight: FontWeight.w800,
                                   decoration: TextDecoration.underline,
                                 ),
                               ),

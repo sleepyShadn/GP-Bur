@@ -2,7 +2,10 @@
 import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../../domain/assessment_classifications.dart';
+import '../../domain/feeling_input_validation.dart';
 import '../../domain/home_logic.dart';
+import '../../domain/mood_input_verdict.dart';
 import '../../data/home_data.dart';
 import 'all_goals_and_activities_page.dart';
 import 'analysis_screen.dart';
@@ -36,10 +39,9 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime? _goalExpiryDate;
   bool _isGoalCompleted = false;
 
-  final List<String> _classifications = [
-    'anxiety', 'depression', 'anorexia', 'bipolar', 'ADHD',
-    'antisocial personality', 'bulimia'
-  ];
+  final List<String> _classifications = List<String>.from(
+    kAssessmentClassifications,
+  );
 
   String _userId = '';
   int _userPoints = 0;
@@ -161,13 +163,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // NEW: Start the question collection process
   Future<void> _startQuestionCollection() async {
-    if (_textController.text.isEmpty) {
-      _logic.showErrorDialog(context, 'Please enter or speak about how you\'re feeling first');
+    if (_todayAnalysisCount >= 2) {
+      _showDailyLimitMessage();
       return;
     }
 
-    if (_todayAnalysisCount >= 2) {
-      _showDailyLimitMessage();
+    final MoodInputVerdict local = FeelingInputValidation.checkLocalInitial(
+      _textController.text,
+    );
+    if (local != MoodInputVerdict.okContinue) {
+      _logic.showMoodInputRejection(context, local);
       return;
     }
 
@@ -176,26 +181,22 @@ class _HomeScreenState extends State<HomeScreen> {
       _isCollectingInfo = false;
     });
 
-    final isValid = await _data.isValidText(_textController.text);
-    if (!isValid) {
-      _logic.showRandomTextError(context);
-      setState(() {
-        _isGeneratingQuestions = false;
-      });
+    final MoodInputVerdict api =
+        await _data.classifyInitialMoodInput(_textController.text);
+    if (!mounted) {
       return;
     }
 
-    final isPositive = await _data.checkForPositiveSentiment(_textController.text);
-    if (isPositive) {
-      _logic.showPositivePopup(context);
+    if (api != MoodInputVerdict.okContinue) {
       setState(() {
         _isGeneratingQuestions = false;
       });
+      _logic.showMoodInputRejection(context, api);
       return;
     }
 
-    // Generate dynamic questions based on input
-    bool success = await _data.startCollectingInfo(_textController.text);
+    final bool success =
+        await _data.startCollectingInfo(_textController.text);
 
     if (success && mounted) {
       setState(() {
@@ -203,11 +204,14 @@ class _HomeScreenState extends State<HomeScreen> {
         _isCollectingInfo = true;
         _updateCurrentQuestion();
       });
-    } else {
+    } else if (mounted) {
       setState(() {
         _isGeneratingQuestions = false;
       });
-      _logic.showErrorDialog(context, 'Unable to generate questions. Please try again.');
+      _logic.showErrorDialog(
+        context,
+        'Unable to generate questions. Please try again.',
+      );
     }
   }
 
@@ -230,15 +234,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // NEW: Submit answer during question collection
   Future<void> _submitAnswer() async {
-    if (_textController.text.isEmpty) {
-      _logic.showErrorDialog(context, 'Please enter your answer');
+    final SubmitAnswerOutcome outcome =
+        await _data.submitAnswerValidated(_textController.text);
+    if (!mounted) {
       return;
     }
 
-    bool isComplete = await _data.submitAnswer(_textController.text);
+    if (outcome.isRejected) {
+      _logic.showMoodInputRejection(context, outcome.rejection!);
+      return;
+    }
 
-    if (isComplete) {
-      // All questions answered - now analyze with complete info
+    if (outcome.collectionComplete) {
       setState(() {
         _isCollectingInfo = false;
         _isAnalyzing = true;
@@ -246,11 +253,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
       await _performAnalysisWithCollectedInfo();
     } else {
-      // More questions remaining
       _textController.clear();
       _updateCurrentQuestion();
 
-      // Show success feedback
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Answer recorded. Next question below.'),
@@ -473,8 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         enabled: !_isAnalyzing && !_isGeneratingQuestions,
                         decoration: InputDecoration(
                           hintText: _isCollectingInfo
-                              ? "Type your answer here..."
-                              : "Tell me how you're feeling...",
+                              ? 'Type your answer in English...'
+                              : "How are you feeling? (English only — describe mood, stress, or sleep)",
                           hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                           filled: true,
                           fillColor: const Color(0xFFE7CCCC).withOpacity(0.3),

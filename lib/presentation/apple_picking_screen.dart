@@ -1131,7 +1131,7 @@ class _ApplePickingScreenState extends State<ApplePickingScreen>
                                     children: [
                                       const Text('🍎 ', style: TextStyle(fontSize: 16)),
                                       Text(
-                                        '${_apples.length}',
+                                        '$_caughtApples',
                                         style: const TextStyle(
                                           color: Colors.white,
                                           fontSize: 16,

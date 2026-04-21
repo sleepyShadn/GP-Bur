@@ -1,8 +1,8 @@
 // ========== lib/domain/harvest_run_logic.dart ==========
+import 'dart:async';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
-
 /// UI helpers + exit dialog (glass style, aligned with Apple / Watering games).
 class HarvestRunLogic {
   String formatTime(int seconds) {
@@ -11,10 +11,14 @@ class HarvestRunLogic {
     return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
-  void showExitDialog(BuildContext context, VoidCallback onExit) {
-    showDialog<void>(
+  /// [onExitConfirmed] يُنفَّذ بعد إغلاق الحوار عند الضغط على Exit.
+  Future<void> showExitDialog(
+    BuildContext context,
+    Future<void> Function() onExitConfirmed,
+  ) {
+    return showDialog<void>(
       context: context,
-      builder: (BuildContext context) => Dialog(
+      builder: (BuildContext dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
         insetPadding:
@@ -91,7 +95,7 @@ class HarvestRunLogic {
                     children: [
                       Expanded(
                         child: TextButton(
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: () => Navigator.pop(dialogContext),
                           style: TextButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             backgroundColor:
@@ -115,9 +119,9 @@ class HarvestRunLogic {
                       const SizedBox(width: 10),
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            onExit();
+                          onPressed: () async {
+                            Navigator.pop(dialogContext);
+                            await onExitConfirmed();
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFFFFD166),

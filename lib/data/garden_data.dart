@@ -2,7 +2,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import '../presentation/garden_screen.dart';
+import '../presentation/garden_planted_item.dart';
 
 class GardenData {
   final FirebaseAuth _auth = FirebaseAuth.instance;

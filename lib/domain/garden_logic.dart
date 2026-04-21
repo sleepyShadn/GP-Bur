@@ -119,4 +119,48 @@ class GardenLogic {
     int remainingSeconds = seconds % 60;
     return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
   }
+
+  /// Optional full-width art for the plot board (spring / summer assets).
+  String? seasonalBackgroundAsset(String season) {
+    switch (season) {
+      case 'Spring':
+        return 'assets/images/watering/watering_bg_spring.png';
+      case 'Summer':
+        return 'assets/images/watering/watering_bg_summer.png';
+      default:
+        return null;
+    }
+  }
+
+  /// Sky-to-soil gradient for farm-style pages.
+  List<Color> seasonalFarmGradient(String season) {
+    switch (season) {
+      case 'Spring':
+        return const [Color(0xFFB8E0D2), Color(0xFFE8F5E9), Color(0xFFF5F0E6)];
+      case 'Summer':
+        return const [Color(0xFF87CEEB), Color(0xFFFFF3CD), Color(0xFFFFE4B5)];
+      case 'Autumn':
+        return const [Color(0xFFD4A574), Color(0xFFE8C9A8), Color(0xFFF0E6DC)];
+      case 'Winter':
+        return const [Color(0xFF9EB8D4), Color(0xFFE8EEF5), Color(0xFFF0F4F8)];
+      default:
+        return const [Color(0xFFB8E0D2), Color(0xFFF5F0E6)];
+    }
+  }
+
+  /// Short seasonal “ritual” line for the hub UI.
+  String seasonalRitualLine(String season) {
+    switch (season) {
+      case 'Spring':
+        return 'Spring thaw — plant early, light rains help everything sprout.';
+      case 'Summer':
+        return 'Long sunny days — water often and watch your garden glow.';
+      case 'Autumn':
+        return 'Harvest season — gather rewards and prep the soil for rest.';
+      case 'Winter':
+        return 'Quiet fields — slow growth, cozy routines, gentle care.';
+      default:
+        return 'Choose a season to set the mood of your farm.';
+    }
+  }
 }

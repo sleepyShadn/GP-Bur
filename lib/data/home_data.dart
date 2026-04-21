@@ -5,7 +5,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
+import '../domain/feeling_input_validation.dart';
+import '../domain/mood_input_verdict.dart';
 import '../services/notification_service.dart';
+
+/// Result of validating and storing one follow-up answer.
+class SubmitAnswerOutcome {
+  const SubmitAnswerOutcome({
+    required this.collectionComplete,
+    this.rejection,
+  });
+
+  /// When non-null, the answer was not accepted and the question index is unchanged.
+  final MoodInputVerdict? rejection;
+
+  /// True when this submission finished the last question (caller runs analysis).
+  final bool collectionComplete;
+
+  bool get isRejected => rejection != null;
+}
 
 class HomeData {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -279,24 +297,36 @@ Generate 6-8 questions total. Make sure each question has a unique ID.
     return _questions[_currentQuestionIndex];
   }
 
-  // Submit answer for current question
-  Future<bool> submitAnswer(String answer) async {
+  /// Validates (local + API) then records the answer and advances the question index.
+  Future<SubmitAnswerOutcome> submitAnswerValidated(String answer) async {
     if (!_isCollectingInfo || _currentQuestionIndex >= _questions.length) {
-      return false;
+      return const SubmitAnswerOutcome(collectionComplete: false);
     }
 
-    Map<String, dynamic> currentQ = _questions[_currentQuestionIndex];
+    final MoodInputVerdict local =
+        FeelingInputValidation.checkLocalFollowUp(answer);
+    if (local != MoodInputVerdict.okContinue) {
+      return SubmitAnswerOutcome(collectionComplete: false, rejection: local);
+    }
+
+    final String qText = getCurrentQuestionText() ?? '';
+    final MoodInputVerdict api =
+        await classifyFollowUpMoodInput(answer, qText);
+    if (api != MoodInputVerdict.okContinue) {
+      return SubmitAnswerOutcome(collectionComplete: false, rejection: api);
+    }
+
+    final Map<String, dynamic> currentQ = _questions[_currentQuestionIndex];
     _collectedInfo[currentQ['id']] = answer;
     _collectedInfo[currentQ['category'] ?? 'other'] = answer;
     _currentQuestionIndex++;
 
-    // Check if we have all required answers
     if (_currentQuestionIndex >= _questions.length) {
       _isCollectingInfo = false;
-      return true; // Collection complete
+      return const SubmitAnswerOutcome(collectionComplete: true);
     }
 
-    return false; // More questions remaining
+    return const SubmitAnswerOutcome(collectionComplete: false);
   }
 
   // Check if collection is complete
@@ -347,58 +377,154 @@ Generate 6-8 questions total. Make sure each question has a unique ID.
     return _isGeneratingQuestions;
   }
 
-  Future<bool> isValidText(String text) async {
-    if (text.trim().isEmpty) return false;
+  MoodInputVerdict _parseApiMoodVerdict(String raw) {
+    String token = raw.trim().toLowerCase();
+    final int nl = token.indexOf('\n');
+    if (nl != -1) {
+      token = token.substring(0, nl);
+    }
+    final List<String> parts = token.split(RegExp(r'\s+'));
+    token = parts.isNotEmpty ? parts.first : token;
+    token = token.replaceAll(RegExp(r'[^a-z_]'), '');
+    switch (token) {
+      case 'gibberish':
+        return MoodInputVerdict.gibberish;
+      case 'non_english':
+      case 'nonenglish':
+        return MoodInputVerdict.englishOnlyViolation;
+      case 'off_topic':
+      case 'offtopic':
+        return MoodInputVerdict.offTopic;
+      case 'positive':
+        return MoodInputVerdict.purelyPositive;
+      case 'valid':
+        return MoodInputVerdict.okContinue;
+      default:
+        return MoodInputVerdict.gibberish;
+    }
+  }
 
+  /// Single API gate after local checks: gibberish / non-English / off-topic / positive / valid.
+  Future<MoodInputVerdict> classifyInitialMoodInput(String text) async {
     try {
-      String prompt = '''
-Analyze if the following text is meaningful, coherent, and not random gibberish. 
-Return ONLY "valid" if the text appears to be a real, coherent sentence or phrase in English that a person would actually say about their feelings or mental state.
-Return ONLY "invalid" if the text appears to be random characters, keyboard mash, repeated letters, or nonsensical input.
+      final String prompt = '''
+You gatekeep an English-only mental-wellness check-in (not a medical diagnosis).
 
-Examples of valid text:
-- "I'm feeling anxious today"
-- "I had a great day at work"
-- "feeling sad and lonely"
+User text:
+"""
+$text
+"""
 
-Examples of invalid text:
-- "hdjsjaih"
-- "fjkdjdjkdfjlkj"
-- "aaaaaaa"
+Reply with EXACTLY ONE WORD (lowercase, no punctuation) from this list:
+- gibberish — random letters, keyboard mash, nonsense, "aaaaaa", lorem ipsum, not real meaning
+- non_english — Arabic or other non-Latin script, or clearly not English
+- off_topic — coherent English but NOT about emotions, mood, stress, sleep, thoughts, relationships, mental wellbeing, or how the user feels (e.g. product list, code, recipe, random facts with no feeling)
+- positive — clearly happy/content/grateful with NO distress or symptoms to explore
+- valid — genuine English about feelings, mood, stress, anxiety, sleep, sadness, anger, social strain, focus, worry, etc.
 
-Text to analyze: "$text"
-
-Return just one word: either "valid" or "invalid".
+One word only.
 ''';
 
-      final response = await http.post(
+      final http.Response response = await http.post(
         Uri.parse('https://api.openai.com/v1/chat/completions'),
-        headers: {
+        headers: <String, String>{
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $_apiKey',
         },
-        body: jsonEncode({
+        body: jsonEncode(<String, dynamic>{
           'model': 'gpt-3.5-turbo',
-          'messages': [
-            {'role': 'system', 'content': 'You are a text validator. Return only "valid" or "invalid".'},
-            {'role': 'user', 'content': prompt}
+          'messages': <Map<String, String>>[
+            {
+              'role': 'system',
+              'content':
+                  'You reply with exactly one lowercase token: gibberish, non_english, off_topic, positive, or valid.',
+            },
+            {'role': 'user', 'content': prompt},
           ],
-          'temperature': 0.3,
-          'max_tokens': 10,
+          'temperature': 0.2,
+          'max_tokens': 12,
         }),
       );
 
       if (response.statusCode == 200) {
-        var data = jsonDecode(response.body);
-        String result = data['choices'][0]['message']['content'].trim().toLowerCase();
-        return result == 'valid';
-      } else {
-        return _basicTextValidation(text);
+        final dynamic data = jsonDecode(response.body);
+        final String content =
+            data['choices'][0]['message']['content'] as String;
+        return _parseApiMoodVerdict(content);
       }
     } catch (e) {
-      print('Error checking text validity: $e');
-      return _basicTextValidation(text);
+      print('Error classifyInitialMoodInput: $e');
     }
+    return _basicTextValidation(text)
+        ? MoodInputVerdict.okContinue
+        : MoodInputVerdict.gibberish;
+  }
+
+  Future<MoodInputVerdict> classifyFollowUpMoodInput(
+    String answer,
+    String questionText,
+  ) async {
+    final String q = questionText.length > 800
+        ? '${questionText.substring(0, 800)}…'
+        : questionText;
+    try {
+      final String prompt = '''
+English-only mental check-in follow-up.
+
+Question the user was asked:
+"""
+$q
+"""
+
+Their answer:
+"""
+$answer
+"""
+
+Classify the answer with EXACTLY ONE WORD (lowercase, no punctuation):
+- gibberish — nonsense, random, not answering
+- non_english — Arabic or other script, or not English
+- off_topic — English but does not answer the question or is unrelated to wellbeing context
+- valid — reasonable answer to the question in English
+
+One word only.
+''';
+
+      final http.Response response = await http.post(
+        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        headers: <String, String>{
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        },
+        body: jsonEncode(<String, dynamic>{
+          'model': 'gpt-3.5-turbo',
+          'messages': <Map<String, String>>[
+            {
+              'role': 'system',
+              'content':
+                  'Reply with exactly one word: gibberish, non_english, off_topic, or valid.',
+            },
+            {'role': 'user', 'content': prompt},
+          ],
+          'temperature': 0.2,
+          'max_tokens': 12,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final dynamic data = jsonDecode(response.body);
+        final String content =
+            data['choices'][0]['message']['content'] as String;
+        final MoodInputVerdict v = _parseApiMoodVerdict(content);
+        if (v == MoodInputVerdict.purelyPositive) {
+          return MoodInputVerdict.okContinue;
+        }
+        return v;
+      }
+    } catch (e) {
+      print('Error classifyFollowUpMoodInput: $e');
+    }
+    return MoodInputVerdict.okContinue;
   }
 
   bool _basicTextValidation(String text) {
@@ -415,44 +541,6 @@ Return just one word: either "valid" or "invalid".
     List<String> words = text.split(RegExp(r'\s+'));
     bool hasValidWords = words.any((word) => word.length >= 2);
     return hasVowel && hasValidVowelRatio && !hasRepeatedPattern && hasValidWords;
-  }
-
-  Future<bool> checkForPositiveSentiment(String text) async {
-    try {
-      String prompt = '''
-Analyze the sentiment of the following text. Return ONLY "positive" if the text expresses happiness, joy, contentment, or other positive emotions. Otherwise, return "not_positive".
-
-Text to analyze: "$text"
-
-Return just one word: either "positive" or "not_positive".
-''';
-
-      final response = await http.post(
-        Uri.parse('https://api.openai.com/v1/chat/completions'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $_apiKey',
-        },
-        body: jsonEncode({
-          'model': 'gpt-3.5-turbo',
-          'messages': [
-            {'role': 'system', 'content': 'You are a sentiment analyzer. Return only "positive" or "not_positive".'},
-            {'role': 'user', 'content': prompt}
-          ],
-          'temperature': 0.3,
-          'max_tokens': 10,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        var data = jsonDecode(response.body);
-        String sentiment = data['choices'][0]['message']['content'].trim().toLowerCase();
-        return sentiment == 'positive';
-      }
-    } catch (e) {
-      print('Error checking sentiment: $e');
-    }
-    return false;
   }
 
   Future<Map<String, dynamic>?> analyzeMood(String text, List<String> classifications) async {

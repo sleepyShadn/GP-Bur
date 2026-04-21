@@ -522,7 +522,7 @@ class _LoginState extends State<Login> {
                                   const Text(
                                     'Remember me',
                                     style: TextStyle(
-                                      color: Color(0xFF6E6A5E),
+                                      color: Color(0xFF3A3832),
                                       fontSize: 12,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -545,9 +545,9 @@ class _LoginState extends State<Login> {
                               child: const Text(
                                 "Forgot Password?",
                                 style: TextStyle(
-                                  color: Color(0xFFA5B68D),
+                                  color: Color(0xFF356B24),
                                   fontSize: 12,
-                                  fontWeight: FontWeight.w500,
+                                  fontWeight: FontWeight.w700,
                                   decoration: TextDecoration.underline,
                                 ),
                               ),
@@ -616,17 +616,17 @@ class _LoginState extends State<Login> {
                           child: RichText(
                             text: const TextSpan(
                               style: TextStyle(
-                                color: Color(0xFF6E6A5E),
+                                color: Color(0xFF2B2926),
                                 fontSize: 13,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.w600,
                               ),
                               children: [
                                 TextSpan(text: "Don't have an account? "),
                                 TextSpan(
                                   text: "Create account",
                                   style: TextStyle(
-                                    color: Color(0xFFA5B68D),
-                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF356B24),
+                                    fontWeight: FontWeight.w800,
                                     decoration: TextDecoration.underline,
                                   ),
                                 ),

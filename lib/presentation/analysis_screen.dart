@@ -4,6 +4,7 @@ import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../domain/analysis_logic.dart';
+import '../../domain/assessment_classifications.dart';
 import '../../data/analysis_data.dart';
 import 'garden_screen.dart';
 import 'home_screen.dart';
@@ -22,10 +23,20 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   int _selectedIndex = 3;
 
-  final List<String> _classifications = [
-    'anxiety', 'depression', 'anorexia', 'bipolar', 'ADHD',
-    'antisocial personality', 'bulimia'
-  ];
+  static const Map<String, String> _chartAxisShortLabels =
+      <String, String>{
+    'sleeping disorder': 'Sleeping',
+    'social disorder': 'Social',
+    'obsessive habits': 'Obsessive',
+    'cognitive disorder': 'Cognitive',
+    'adhd': 'ADHD',
+    'mood swings': 'Mood',
+    'mild anger issues': 'Anger',
+  };
+
+  final List<String> _classifications = List<String>.from(
+    kAssessmentClassifications,
+  );
 
   DateTime? _startDate;
   DateTime? _endDate;
@@ -404,24 +415,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                             getTitlesWidget: (value, meta) {
                               final index = value.toInt();
                               if (index >= 0 && index < _classifications.length) {
-                                String label = _classifications[index];
-                                if (label == 'antisocial personality') {
-                                  label = 'Antisocial';
-                                } else if (label == 'anorexia') {
-                                  label = 'Anorexia';
-                                } else {
-                                  label = label.substring(0, 1).toUpperCase() +
-                                      label.substring(1, label.length > 6 ? 6 : label.length);
-                                }
+                                final String raw = _classifications[index];
+                                final String label =
+                                    _chartAxisShortLabels[raw] ?? raw;
                                 return Container(
-                                  width: 45,
+                                  width: 52,
                                   alignment: Alignment.center,
                                   child: Text(
                                     label,
-                                    style: TextStyle(
-                                      color: const Color(0xff7f9461),
+                                    style: const TextStyle(
+                                      color: Color(0xff7f9461),
                                       fontSize: 9,
-                                      fontWeight: FontWeight.w500,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                     maxLines: 2,
                                     textAlign: TextAlign.center,
@@ -431,7 +436,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                               }
                               return const SizedBox();
                             },
-                            reservedSize: 40,
+                            reservedSize: 44,
                           ),
                         ),
                         leftTitles: AxisTitles(

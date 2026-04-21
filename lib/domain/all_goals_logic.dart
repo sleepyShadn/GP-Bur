@@ -457,20 +457,20 @@ class AllGoalsLogic {
 
   Map<String, dynamic> _getClassificationStyle(String classification) {
     switch (classification.toLowerCase()) {
-      case 'anxiety':
-        return {'icon': Icons.spa, 'color': Colors.purple};
-      case 'depression':
-        return {'icon': Icons.cloud, 'color': Colors.blue};
-      case 'anorexia':
-        return {'icon': Icons.restaurant, 'color': Colors.orange};
-      case 'bipolar':
-        return {'icon': Icons.bolt, 'color': Colors.red};
+      case 'sleeping disorder':
+        return {'icon': Icons.bedtime_outlined, 'color': const Color(0xFF5C6BC0)};
+      case 'social disorder':
+        return {'icon': Icons.groups_2_outlined, 'color': const Color(0xFF00897B)};
+      case 'obsessive habits':
+        return {'icon': Icons.repeat_rounded, 'color': const Color(0xFF7E57C2)};
+      case 'cognitive disorder':
+        return {'icon': Icons.psychology_outlined, 'color': const Color(0xFF546E7A)};
       case 'adhd':
-        return {'icon': Icons.auto_awesome, 'color': Colors.amber};
-      case 'antisocial personality':
-        return {'icon': Icons.people_outline, 'color': Colors.teal};
-      case 'bulimia':
-        return {'icon': Icons.fastfood, 'color': Colors.pink};
+        return {'icon': Icons.bolt_rounded, 'color': const Color(0xFFFFA000)};
+      case 'mood swings':
+        return {'icon': Icons.sentiment_neutral_rounded, 'color': const Color(0xFFEC407A)};
+      case 'mild anger issues':
+        return {'icon': Icons.self_improvement_rounded, 'color': const Color(0xFFE64A19)};
       default:
         return {'icon': Icons.psychology, 'color': colorGreenDark};
     }

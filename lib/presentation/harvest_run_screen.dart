@@ -60,9 +60,15 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   bool _gameActive = false;
   bool _paused = false;
   bool _showIntro = true;
+  bool _introStartBusy = false;
 
   Timer? _tickTimer;
+  Timer? _advanceBannerTimer;
   String? _userId;
+
+  /// In-round toast like Apple Picking’s “LEVEL n!” (next basket / next stage).
+  bool _advanceBannerVisible = false;
+  String _advanceBannerText = '';
 
   /// One visual basket slot per order; active slot receives harvest flight.
   List<GlobalKey> _basketKeys = <GlobalKey>[];
@@ -107,8 +113,80 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     _flightEntry?.remove();
     _flightEntry = null;
     _tickTimer?.cancel();
-    unawaited(_audio.dispose());
+    _advanceBannerTimer?.cancel();
+    final GardenAudioService audio = _audio;
+    unawaited(() async {
+      await audio.haltAllPlayback();
+      await audio.dispose();
+    }());
     super.dispose();
+  }
+
+  /// خروج مؤكد من جولة نشطة: إيقاف الصوت، game_over، حفظ نقاط الجولة الحالية إن وُجدت، ثم الرجوع.
+  Future<void> _confirmHarvestExit() async {
+    final HarvestLevelConfig? c = _config;
+    _tickTimer?.cancel();
+    _advanceBannerTimer?.cancel();
+    _gameActive = false;
+    _tractorPassCtrl.stop();
+    final int partial =
+        c != null ? _netRoundScore(c).clamp(0, 999999) : 0;
+    final int timeSnap = c != null ? _timeLeft.clamp(0, c.seconds) : 0;
+    final int picks = _picksDone;
+    final int totalPicks = c?.totalPicksAllOrders ?? 0;
+    final int levelId = c?.id ?? 1;
+    final String title =
+        c != null ? 'H${c.id} (exit): ${c.title}' : 'Harvest Run (exit)';
+
+    await _audio.haltAllPlayback();
+    await _audio.playExitGameOver();
+    await Future<void>.delayed(const Duration(milliseconds: 140));
+
+    if (partial > 0 && _userId != null) {
+      await _data.saveScoreToFirebase(
+        _userId!,
+        partial,
+        picks,
+        totalPicks,
+        false,
+        title,
+        timeSnap,
+        levelId: levelId,
+      );
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _onIntroStartGamePressed() async {
+    if (_introStartBusy) return;
+    setState(() => _introStartBusy = true);
+    try {
+      await _audio.playHarvestGameStartThenBgm();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _introStartBusy = false;
+      _showIntro = false;
+      _sessionPoints = 0;
+    });
+    _startLevel(HarvestRunData.levels.first);
+  }
+
+  void _showAdvanceBanner(String text,
+      {Duration hold = const Duration(milliseconds: 1350)}) {
+    _advanceBannerTimer?.cancel();
+    setState(() {
+      _advanceBannerText = text;
+      _advanceBannerVisible = true;
+    });
+    _advanceBannerTimer = Timer(hold, () {
+      if (mounted) {
+        setState(() => _advanceBannerVisible = false);
+      }
+    });
   }
 
   void _refreshPatchKeys() {
@@ -250,8 +328,12 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) => _onTick());
     if (playAdvanceCue) {
       unawaited(_audio.playLevelUp());
+      _showAdvanceBanner(
+        'STAGE ${c.id}',
+        hold: const Duration(milliseconds: 1500),
+      );
     }
-    unawaited(_audio.playRoundStart());
+    unawaited(_audio.ensureHarvestRunBgm());
     if (!_tractorPassCtrl.isAnimating) {
       _tractorPassCtrl.repeat();
     }
@@ -289,6 +371,7 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     _gameActive = false;
     _tickTimer?.cancel();
     _tickTimer = null;
+    unawaited(_audio.stopGardenCareBgm());
     if (!mounted) return;
 
     final HarvestLevelConfig c = _config!;
@@ -725,8 +808,10 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         (int i) => GlobalKey(debugLabel: 'harvest_basket_$i'),
       );
     });
-    unawaited(_audio.playLevelUp());
-    _snack('Delivered! Next: ${c.orders[_orderIndex].title}');
+    _showAdvanceBanner(
+      'NEXT BASKET · ${_orderIndex + 1}/${c.orders.length}',
+      hold: const Duration(milliseconds: 1400),
+    );
   }
 
   void _snack(String msg) {
@@ -745,15 +830,25 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   void _togglePause() {
     setState(() => _paused = !_paused);
     if (_paused) {
+      unawaited(_audio.pauseGardenCareBgm());
       unawaited(_audio.playPause());
     } else {
+      unawaited(_audio.resumeGardenCareBgm());
       unawaited(_audio.playResume());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_gameActive,
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop || !_gameActive) return;
+        await _audio.playButtonTap();
+        if (!context.mounted) return;
+        await _logic.showExitDialog(context, _confirmHarvestExit);
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFF0F1814),
       body: Stack(
         fit: StackFit.expand,
@@ -786,20 +881,225 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
               children: <Widget>[
                 _buildTopBar(context),
                 Expanded(
-                  child: _phase == _HarvestPhase.playing && _config != null
-                      ? KeyedSubtree(
-                          key: ValueKey<int>(_config!.id),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      if (_phase == _HarvestPhase.playing && _config != null)
+                        KeyedSubtree(
+                          key: ValueKey<String>(
+                            '${_config!.id}_$_orderIndex',
+                          ),
                           child: _buildPlayfield(),
                         )
-                      : (_showIntro
-                          ? _buildIntro()
-                          : const Center(child: CircularProgressIndicator())),
+                      else if (_showIntro)
+                        _buildIntro()
+                      else
+                        const Center(child: CircularProgressIndicator()),
+                      if (_phase == _HarvestPhase.playing &&
+                          _config != null &&
+                          _advanceBannerVisible)
+                        Positioned(
+                          top: 6,
+                          left: 8,
+                          right: 8,
+                          child: Center(
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 260),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 11,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF166534)
+                                    .withValues(alpha: 0.94),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                ),
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.35),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: Text(
+                                _advanceBannerText,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xFFF8FFF8),
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (_phase == _HarvestPhase.playing && _config != null)
+                        Positioned(
+                          left: 10,
+                          right: 10,
+                          bottom: 6,
+                          child: SafeArea(
+                            top: false,
+                            child: _buildPlayHudFooter(_config!),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
         ],
       ),
+    ),
+    );
+  }
+
+  /// شريط سفلي مثل لعبة التفاح: وقت واضح + نقاط الجولة + النقاط المحفوظة في الجلسة.
+  Widget _buildPlayHudFooter(HarvestLevelConfig c) {
+    final int net = _netRoundScore(c);
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.20),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.48),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.timer_rounded,
+                      color: _timeLeft <= 5
+                          ? const Color(0xFFFFAB91)
+                          : const Color(0xFFF8FBFF),
+                      size: 22,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      _logic.formatTime(_timeLeft),
+                      style: TextStyle(
+                        color: _timeLeft <= 5
+                            ? const Color(0xFFFFAB91)
+                            : const Color(0xFFF8FBFF),
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  '${_timeLeft}s left · ${_logic.formatTime(c.seconds)} round',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.20),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.48),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Text(
+                  'Round score',
+                  style: TextStyle(
+                    color: Color(0xFFFFE082),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '$net',
+                  style: const TextStyle(
+                    color: Color(0xFFF8FBFF),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  'Deliver to bank bonus on clear',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.20),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.48),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Text(
+                  'Session saved',
+                  style: TextStyle(
+                    color: Color(0xFFBBF7D0),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '$_sessionPoints',
+                  style: const TextStyle(
+                    color: Color(0xFFF8FBFF),
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  'Stages cleared',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -963,15 +1263,16 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
 
   Widget _glassExit(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         if (_gameActive) {
-          unawaited(_audio.playButtonTap());
-          _logic.showExitDialog(context, () {
-            _tickTimer?.cancel();
-            Navigator.pop(context);
-          });
+          await _audio.playButtonTap();
+          if (!context.mounted) return;
+          await _logic.showExitDialog(context, _confirmHarvestExit);
         } else {
-          Navigator.pop(context);
+          await _audio.haltAllPlayback();
+          if (context.mounted) {
+            Navigator.of(context).pop();
+          }
         }
       },
       child: Container(
@@ -1085,29 +1386,47 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
       child: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(vertical: 16),
         child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 22),
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 22),
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.fromLTRB(26, 24, 26, 24),
           decoration: BoxDecoration(
             gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
               colors: <Color>[
-                const Color(0xFF2D3F55).withValues(alpha: 0.9),
-                const Color(0xFF3A5068).withValues(alpha: 0.85),
+                const Color(0xFF2D3F55).withValues(alpha: 0.82),
+                const Color(0xFF3A5068).withValues(alpha: 0.76),
               ],
             ),
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.26)),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.24),
+              width: 1.1,
+            ),
             boxShadow: <BoxShadow>[
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
           child: Column(
             children: <Widget>[
-              const Text('🧺', style: TextStyle(fontSize: 52)),
-              const SizedBox(height: 12),
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.12),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: const Center(
+                  child: Text('🧺', style: TextStyle(fontSize: 46)),
+                ),
+              ),
+              const SizedBox(height: 18),
               const Text(
                 'Harvest Run',
                 style: TextStyle(
@@ -1116,23 +1435,66 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                'Several basket orders per round — pick the right rows, fill counts, beat each order timer and the big clock.',
+              const SizedBox(height: 12),
+              const Text(
+                'Fill real basket orders from the field — fast fingers, clear thinking, and a ticking clock.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: const Color(0xFFDCE6F2).withValues(alpha: 0.95),
+                  color: Color(0xFFDCE6F2),
+                  fontSize: 14,
                   height: 1.35,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(height: 14),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    const Text(
+                      'Game Benefits',
+                      style: TextStyle(
+                        color: Color(0xFFFFD166),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    for (final String line in HarvestRunData.gameBenefitLines)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '• $line',
+                          style: const TextStyle(
+                            color: Color(0xFFDCE6F2),
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
+                  ),
                 ),
                 child: Text(
                   HarvestRunData.missionBrief(first),
@@ -1145,38 +1507,46 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
               ),
               const SizedBox(height: 12),
               Text(
-                'Best stage unlocked: $_maxUnlocked / ${HarvestRunData.levels.length}',
+                'Best stage unlocked: $_maxUnlocked / ${HarvestRunData.levels.length} · '
+                '${first.totalPicksAllOrders} picks in stage 1',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Color(0xFFFFD166),
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 22),
               ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _showIntro = false;
-                    _sessionPoints = 0;
-                  });
-                  _startLevel(HarvestRunData.levels.first);
-                },
+                onPressed: _introStartBusy ? null : _onIntroStartGamePressed,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFFFD166),
                   foregroundColor: const Color(0xFF2A3A4F),
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 42, vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
+                  elevation: 2,
+                  shadowColor: Colors.black.withValues(alpha: 0.24),
                 ),
-                child: const Text(
-                  'START',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 17,
-                    letterSpacing: 1,
-                  ),
-                ),
+                child: _introStartBusy
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.6,
+                          color: Color(0xFF2A3A4F),
+                        ),
+                      )
+                    : const Text(
+                        'START GAME',
+                        style: TextStyle(
+                          color: Color(0xFF2A3A4F),
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.9,
+                        ),
+                      ),
               ),
             ],
           ),
@@ -1197,7 +1567,7 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         .toList();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 12),
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 88),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[

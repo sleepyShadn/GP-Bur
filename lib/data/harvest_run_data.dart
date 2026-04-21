@@ -16,7 +16,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 1,
       title: 'Farm gate — warm up',
-      seconds: 52,
+      seconds: 54,
       fieldSize: 8,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -25,12 +25,12 @@ class HarvestRunData {
             HarvestCrop.tomato: 2,
             HarvestCrop.carrot: 1,
           },
-          patienceSeconds: 42,
+          patienceSeconds: 44,
         ),
         HarvestBasketOrder(
           title: 'Order 2 — Side salad',
           need: <HarvestCrop, int>{HarvestCrop.lettuce: 1},
-          patienceSeconds: 28,
+          patienceSeconds: 30,
         ),
       ],
       pointsPerPick: 14,
@@ -41,7 +41,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 2,
       title: 'Two-stop market',
-      seconds: 58,
+      seconds: 60,
       fieldSize: 10,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -50,12 +50,12 @@ class HarvestRunData {
             HarvestCrop.carrot: 2,
             HarvestCrop.tomato: 1,
           },
-          patienceSeconds: 44,
+          patienceSeconds: 46,
         ),
         HarvestBasketOrder(
           title: 'Order 2 — Spice run',
           need: <HarvestCrop, int>{HarvestCrop.pepper: 1, HarvestCrop.corn: 1},
-          patienceSeconds: 36,
+          patienceSeconds: 34,
         ),
       ],
       pointsPerPick: 13,
@@ -66,7 +66,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 3,
       title: 'Triple tickets',
-      seconds: 62,
+      seconds: 66,
       fieldSize: 12,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -75,17 +75,17 @@ class HarvestRunData {
             HarvestCrop.tomato: 2,
             HarvestCrop.lettuce: 1,
           },
-          patienceSeconds: 40,
+          patienceSeconds: 42,
         ),
         HarvestBasketOrder(
           title: 'Order 2 — Roots',
           need: <HarvestCrop, int>{HarvestCrop.carrot: 2},
-          patienceSeconds: 34,
+          patienceSeconds: 32,
         ),
         HarvestBasketOrder(
           title: 'Order 3 — Golden top',
           need: <HarvestCrop, int>{HarvestCrop.corn: 1},
-          patienceSeconds: 28,
+          patienceSeconds: 26,
         ),
       ],
       pointsPerPick: 12,
@@ -96,7 +96,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 4,
       title: 'Rush hour crates',
-      seconds: 64,
+      seconds: 66,
       fieldSize: 14,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -105,7 +105,7 @@ class HarvestRunData {
             HarvestCrop.tomato: 3,
             HarvestCrop.pepper: 1,
           },
-          patienceSeconds: 42,
+          patienceSeconds: 40,
         ),
         HarvestBasketOrder(
           title: 'Order 2 — Crunch mix',
@@ -113,7 +113,7 @@ class HarvestRunData {
             HarvestCrop.carrot: 2,
             HarvestCrop.lettuce: 1,
           },
-          patienceSeconds: 38,
+          patienceSeconds: 36,
         ),
       ],
       pointsPerPick: 12,
@@ -124,28 +124,28 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 5,
       title: 'Four baskets',
-      seconds: 68,
+      seconds: 72,
       fieldSize: 16,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
           title: 'Order 1',
           need: <HarvestCrop, int>{HarvestCrop.tomato: 2, HarvestCrop.corn: 1},
-          patienceSeconds: 36,
+          patienceSeconds: 38,
         ),
         HarvestBasketOrder(
           title: 'Order 2',
           need: <HarvestCrop, int>{HarvestCrop.carrot: 2},
-          patienceSeconds: 32,
+          patienceSeconds: 30,
         ),
         HarvestBasketOrder(
           title: 'Order 3',
           need: <HarvestCrop, int>{HarvestCrop.lettuce: 2},
-          patienceSeconds: 30,
+          patienceSeconds: 28,
         ),
         HarvestBasketOrder(
           title: 'Order 4',
           need: <HarvestCrop, int>{HarvestCrop.pepper: 1, HarvestCrop.tomato: 1},
-          patienceSeconds: 34,
+          patienceSeconds: 32,
         ),
       ],
       pointsPerPick: 11,
@@ -156,7 +156,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 6,
       title: 'Heavy harvest',
-      seconds: 72,
+      seconds: 74,
       fieldSize: 18,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -165,7 +165,7 @@ class HarvestRunData {
             HarvestCrop.pepper: 2,
             HarvestCrop.corn: 2,
           },
-          patienceSeconds: 40,
+          patienceSeconds: 38,
         ),
         HarvestBasketOrder(
           title: 'Order 2 — Salad bowl',
@@ -173,12 +173,12 @@ class HarvestRunData {
             HarvestCrop.lettuce: 2,
             HarvestCrop.tomato: 2,
           },
-          patienceSeconds: 40,
+          patienceSeconds: 38,
         ),
         HarvestBasketOrder(
           title: 'Order 3 — Roots',
           need: <HarvestCrop, int>{HarvestCrop.carrot: 3},
-          patienceSeconds: 36,
+          patienceSeconds: 34,
         ),
       ],
       pointsPerPick: 11,
@@ -189,7 +189,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 7,
       title: 'Wholesale lane',
-      seconds: 76,
+      seconds: 78,
       fieldSize: 20,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -198,7 +198,7 @@ class HarvestRunData {
             HarvestCrop.tomato: 3,
             HarvestCrop.carrot: 2,
           },
-          patienceSeconds: 42,
+          patienceSeconds: 40,
         ),
         HarvestBasketOrder(
           title: 'Order 2',
@@ -207,7 +207,7 @@ class HarvestRunData {
             HarvestCrop.pepper: 1,
             HarvestCrop.corn: 1,
           },
-          patienceSeconds: 40,
+          patienceSeconds: 38,
         ),
         HarvestBasketOrder(
           title: 'Order 3',
@@ -215,7 +215,7 @@ class HarvestRunData {
             HarvestCrop.corn: 2,
             HarvestCrop.tomato: 2,
           },
-          patienceSeconds: 38,
+          patienceSeconds: 36,
         ),
       ],
       pointsPerPick: 10,
@@ -226,7 +226,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 8,
       title: 'Full truck',
-      seconds: 80,
+      seconds: 82,
       fieldSize: 22,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -235,7 +235,7 @@ class HarvestRunData {
             HarvestCrop.carrot: 3,
             HarvestCrop.lettuce: 2,
           },
-          patienceSeconds: 44,
+          patienceSeconds: 42,
         ),
         HarvestBasketOrder(
           title: 'Order 2',
@@ -243,12 +243,12 @@ class HarvestRunData {
             HarvestCrop.tomato: 3,
             HarvestCrop.pepper: 2,
           },
-          patienceSeconds: 42,
+          patienceSeconds: 40,
         ),
         HarvestBasketOrder(
           title: 'Order 3',
           need: <HarvestCrop, int>{HarvestCrop.corn: 2, HarvestCrop.lettuce: 1},
-          patienceSeconds: 36,
+          patienceSeconds: 34,
         ),
       ],
       pointsPerPick: 10,
@@ -259,7 +259,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 9,
       title: 'Night market',
-      seconds: 84,
+      seconds: 86,
       fieldSize: 24,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -269,7 +269,7 @@ class HarvestRunData {
             HarvestCrop.carrot: 2,
             HarvestCrop.pepper: 1,
           },
-          patienceSeconds: 46,
+          patienceSeconds: 44,
         ),
         HarvestBasketOrder(
           title: 'Order 2',
@@ -277,7 +277,7 @@ class HarvestRunData {
             HarvestCrop.lettuce: 3,
             HarvestCrop.corn: 2,
           },
-          patienceSeconds: 44,
+          patienceSeconds: 42,
         ),
         HarvestBasketOrder(
           title: 'Order 3',
@@ -286,7 +286,7 @@ class HarvestRunData {
             HarvestCrop.carrot: 2,
             HarvestCrop.corn: 1,
           },
-          patienceSeconds: 42,
+          patienceSeconds: 40,
         ),
       ],
       pointsPerPick: 9,
@@ -297,7 +297,7 @@ class HarvestRunData {
     HarvestLevelConfig(
       id: 10,
       title: 'Export rush',
-      seconds: 88,
+      seconds: 90,
       fieldSize: 26,
       orders: <HarvestBasketOrder>[
         HarvestBasketOrder(
@@ -306,7 +306,7 @@ class HarvestRunData {
             HarvestCrop.tomato: 4,
             HarvestCrop.lettuce: 2,
           },
-          patienceSeconds: 48,
+          patienceSeconds: 46,
         ),
         HarvestBasketOrder(
           title: 'Order 2',
@@ -315,7 +315,7 @@ class HarvestRunData {
             HarvestCrop.pepper: 2,
             HarvestCrop.corn: 1,
           },
-          patienceSeconds: 46,
+          patienceSeconds: 44,
         ),
         HarvestBasketOrder(
           title: 'Order 3',
@@ -324,7 +324,7 @@ class HarvestRunData {
             HarvestCrop.tomato: 2,
             HarvestCrop.lettuce: 2,
           },
-          patienceSeconds: 48,
+          patienceSeconds: 46,
         ),
         HarvestBasketOrder(
           title: 'Order 4 — Finale',
@@ -332,7 +332,7 @@ class HarvestRunData {
             HarvestCrop.carrot: 2,
             HarvestCrop.pepper: 2,
           },
-          patienceSeconds: 40,
+          patienceSeconds: 36,
         ),
       ],
       pointsPerPick: 9,
@@ -358,6 +358,13 @@ class HarvestRunData {
         'Wrong taps cost points. Each order has its own patience bar — don’t let it empty! '
         'Finish everything before the big timer hits zero.';
   }
+
+  /// Short lines for the pre-game card (same spirit as Apple Picking benefits).
+  static const List<String> gameBenefitLines = <String>[
+    'Sharpens planning: read the receipt, then harvest in any order.',
+    'Builds calm focus while each basket’s patience bar counts down.',
+    'Rewards clean runs — finish early for time bonus points.',
+  ];
 
   Future<Map<String, dynamic>?> getCurrentUser() async {
     final User? user = _auth.currentUser;
