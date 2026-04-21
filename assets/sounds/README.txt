@@ -29,10 +29,13 @@ Garden / watering game (رعاية الحديقة) — أضف هذه الملف�
 - (يُستعاد من لعبة التفاحات) button_tap.wav — زر الخروج قبل نافذة التأكيد
 - (يُستعاد من لعبة التفاحات) level_up.wav — الانتقال لجولة أعلى داخل جلسة الريّ
 
-Harvest Run (حصاد الطلبات / السلّة) — تستخدم نفس مؤثرات الحديقة ولعبة التفاح أعلاه:
-- garden_tool_grab.wav — قطفة صحيحة
-- garden_weed_waste.wav — محصول خاطئ
-- garden_round_start.wav, garden_level_complete.wav, garden_game_over.wav, garden_timer_warning.wav
+Harvest Run (حصاد الطلبات / السلّة):
+- harvest_game_start.wav — نقرة بداية عند «START GAME» (تنتهي ثم تبدأ الخلفية؛ احتياطي: game_start.wav)
+- harvest_run_bgm.mp3 أو harvest_run_bgm.wav — موسيقى خلفية حلقة أثناء الجولة (احتياطي: bg_game_loop.mp3 ثم garden_care_bgm.mp3)
+- game_over.wav — عند تأكيد الخروج من الجولة (ثم احتياطي garden_game_over.wav)
+- garden_tool_grab.wav — قطفة صحيحة (SFX، لا يقطع الـ BGM)
+- garden_weed_waste.wav — سلة خاطئة / عودة المحصول
+- garden_level_complete.wav, garden_game_over.wav, garden_timer_warning.wav
 - pause.wav, resume.wav, button_tap.wav, level_up.wav
 
 ملاحظات:
