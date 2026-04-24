@@ -24,25 +24,29 @@ class ShopLogic {
   final List<ShopItem> shopItems = [
     ShopItem(
       name: 'Regular Seeds',
-      description: 'Green in color; takes one minute to grow.',
+      description:
+          'Green in color; grows over about a day — daily activities keep the garden strong.',
       price: 7,
       inventoryKey: 'Regular Seeds',
     ),
     ShopItem(
       name: 'Rare Seeds',
-      description: 'Blue in color; takes six minutes to grow.',
+      description:
+          'Blue in color; needs a few days — skip today’s care and blooms fade faster.',
       price: 12,
       inventoryKey: 'Rare Seeds',
     ),
     ShopItem(
       name: 'Legendary Seeds',
-      description: 'Purple in color; takes 15 minutes to grow.',
+      description:
+          'Purple in color; a full week to mature — worth steady daily habits.',
       price: 20,
       inventoryKey: 'Legendary Seeds',
     ),
     ShopItem(
       name: 'Growth Accelerator',
-      description: 'Reduced speed immediately.',
+      description:
+          'Organic boost: each plant skips forward about one day of real grow time (not instant). Daily activities still shape garden vitality.',
       price: 35,
       inventoryKey: 'Growth Accelerator',
     ),
@@ -55,7 +59,7 @@ class ShopLogic {
       case 'Rare Seeds':
         return Icons.eco;
       case 'Legendary Seeds':
-        return Icons.auto_awesome;
+        return Icons.diamond_rounded;
       case 'Growth Accelerator':
         return Icons.speed;
       default:

@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
 
-/// BGM + SFX use [AudioContextConfigFocus.mixWithOthers] so they layer instead
-/// of competing for Android audio focus / iOS session (default is `gain`).
 class GameAudioService {
   final AudioPlayer _bgmPlayer = AudioPlayer(playerId: 'game_bgm');
   /// Loops [game_start.wav] while the pre-game card is visible (dedicated player).
@@ -33,7 +31,6 @@ class GameAudioService {
     );
   }
 
-  /// Call while the START GAME card is on screen; stops when [stopPreGameLoop] runs.
   Future<void> startPreGameLoop() async {
     try {
       await _preGamePlayer.setReleaseMode(ReleaseMode.loop);

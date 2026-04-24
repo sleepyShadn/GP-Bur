@@ -1,30 +1,15 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 
-/// أصوات لعبة «رعاية الحديقة»: [موسيقى خلفية منفصلة] + [مؤثرات SFX على لاعبين آخرين] حتى لا يقطع المؤثر الموسيقى.
-///
-/// لعبة الحصاد (Harvest Run): [harvest_game_start] لاعب منفصل → ثم [harvest_run_bgm] على نفس لاعب الـ BGM؛
-/// المؤثرات الأخرى على لاعبات SFX دون قطع الخلفية.
-///
-/// أسماء الملفات المتوقعة تحت `assets/sounds/` (انظر أيضاً [assets/sounds/README.txt]):
-/// - harvest_game_start.wav — نقرة بداية لعبة الحصاد (مرة واحدة ثم الخلفية)
-/// - harvest_run_bgm.mp3 أو harvest_run_bgm.wav — موسيقى حلقة أثناء جولة الحصاد
-/// - garden_tool_grab.wav (حلقة خلفية بعد START؛ احتياطي: bg_game_loop.mp3 ثم garden_care_bgm.mp3)
-/// - garden_water_spray.wav, garden_fertilizer_pour.wav, garden_weed_waste.wav
-/// - garden_level_complete.wav, garden_game_over.wav, garden_timer_warning.wav, garden_round_start.wav
-/// - garden_bonus_spawn.wav, garden_bonus_pickup.wav, garden_plant_focus_open.wav
-/// - button_tap.wav, level_up.wav (مشتركان مع لعبة التفاحات)
-/// - garden_round_start.wav — لاعب منفصل: حلقة بطاقة START ثم يُوقف عند الضغط على START
 class GardenAudioService {
   final AudioPlayer _bgmPlayer = AudioPlayer(playerId: 'garden_bgm');
   bool _gardenBgmActive = false;
 
-  /// نقرة بداية لعبة الحصاد (مرة واحدة) — لاعب منفصل عن الـ BGM وعن الـ SFX.
   final AudioPlayer _harvestStartPlayer =
       AudioPlayer(playerId: 'harvest_game_start');
 
-  /// حلقة انتظار شاشة البداية — لا يستخدم لاعب الـ SFX حتى لا يتوقف مع مؤثر آخر.
   final AudioPlayer _introRoundStartPlayer =
       AudioPlayer(playerId: 'garden_intro_round');
 
@@ -33,12 +18,15 @@ class GardenAudioService {
     (i) => AudioPlayer(playerId: 'garden_sfx_$i'),
   );
   int _sfxRotor = 0;
+  bool _disposed = false;
+  bool _disposing = false;
 
   static final AudioContext _mixingContext = AudioContextConfig(
     focus: AudioContextConfigFocus.mixWithOthers,
   ).build();
 
   Future<void> init() async {
+    if (_disposed || _disposing) return;
     await AudioPlayer.global.setAudioContext(_mixingContext);
     await _bgmPlayer.setAudioContext(_mixingContext);
     await _bgmPlayer.setReleaseMode(ReleaseMode.loop);
@@ -55,6 +43,8 @@ class GardenAudioService {
   }
 
   Future<void> dispose() async {
+    if (_disposed || _disposing) return;
+    _disposing = true;
     await haltAllPlayback();
     try {
       await _harvestStartPlayer.dispose();
@@ -66,10 +56,12 @@ class GardenAudioService {
       await _bgmPlayer.dispose();
     } catch (_) {}
     await Future.wait(_sfxPlayers.map((p) => p.dispose()));
+    _disposed = true;
+    _disposing = false;
   }
 
-  /// إيقاف كل اللاعبين (خلفية، بداية الحصاد، intro، SFX) — آمن للاستدعاء قبل الخروج من الشاشة.
   Future<void> haltAllPlayback() async {
+    if (_disposed) return;
     _gardenBgmActive = false;
     Future<void> safe(Future<void> f) async {
       try {
@@ -85,8 +77,8 @@ class GardenAudioService {
     ]);
   }
 
-  /// صوت خروج من اللعبة (لعبة التفاح أولاً ثم حديقة).
   Future<void> playExitGameOver() async {
+    if (_disposed || _disposing) return;
     for (final String name in <String>['game_over.wav', 'garden_game_over.wav']) {
       try {
         final AudioPlayer player = _sfxPlayers[_sfxRotor];
@@ -101,26 +93,40 @@ class GardenAudioService {
     }
   }
 
-  /// يُشغَّل أثناء بطاقة «START GAME» فقط (حلقة [garden_round_start]).
   Future<void> startGardenIntroRoundStartLoop() async {
+    if (_disposed || _disposing) return;
     try {
+      await _bgmPlayer.stop();
+      _gardenBgmActive = false;
+      await _harvestStartPlayer.stop();
       await _introRoundStartPlayer.stop();
       await _introRoundStartPlayer.setReleaseMode(ReleaseMode.loop);
       await _introRoundStartPlayer.setVolume(0.52);
-      await _introRoundStartPlayer.play(
-        AssetSource('sounds/garden_round_start.wav'),
-      );
+      for (final String name in <String>[
+        'harvest_game_start.wav',
+        'game_start.wav',
+      ]) {
+        try {
+          await _introRoundStartPlayer.play(
+            AssetSource('sounds/$name'),
+          );
+          break;
+        } catch (e) {
+          debugPrint('GardenAudioService intro loop missing or failed: sounds/$name — $e');
+        }
+      }
     } catch (_) {}
   }
 
   Future<void> stopGardenIntroRoundStartCue() async {
+    if (_disposed || _disposing) return;
     try {
       await _introRoundStartPlayer.stop();
     } catch (_) {}
   }
 
-  /// موسيقى/حلقة خلفية أثناء اللعب؛ لا تُوقفها مؤثرات [playWaterSpray] وغيرها.
   Future<void> startGardenCareBgm() async {
+    if (_disposed || _disposing) return;
     if (_gardenBgmActive) return;
     Future<bool> tryPlay(String asset, double volume) async {
       try {
@@ -147,6 +153,7 @@ class GardenAudioService {
   }
 
   Future<void> pauseGardenCareBgm() async {
+    if (_disposed || _disposing) return;
     if (!_gardenBgmActive) return;
     try {
       await _bgmPlayer.pause();
@@ -154,6 +161,7 @@ class GardenAudioService {
   }
 
   Future<void> resumeGardenCareBgm() async {
+    if (_disposed || _disposing) return;
     if (!_gardenBgmActive) return;
     try {
       await _bgmPlayer.resume();
@@ -161,40 +169,49 @@ class GardenAudioService {
   }
 
   Future<void> stopGardenCareBgm() async {
+    if (_disposed || _disposing) return;
     _gardenBgmActive = false;
     try {
       await _bgmPlayer.stop();
     } catch (_) {}
   }
 
-  /// يُستدعى من زر START GAME في Harvest Run: يوقف أي BGM، يشغّل [harvest_game_start] حتى النهاية، ثم حلقة [harvest_run_bgm].
   Future<void> playHarvestGameStartThenBgm() async {
+    if (_disposed || _disposing) return;
+    await stopGardenIntroRoundStartCue();
     await stopGardenCareBgm();
     try {
       await _harvestStartPlayer.stop();
-      await _harvestStartPlayer.setReleaseMode(ReleaseMode.release);
-      await _harvestStartPlayer.setVolume(0.82);
-      for (final String name in <String>[
-        'harvest_game_start.wav',
-        'game_start.wav',
-      ]) {
-        try {
-          final Future<void> done = _harvestStartPlayer.onPlayerComplete.first;
-          await _harvestStartPlayer.play(AssetSource('sounds/$name'));
-          await done.timeout(const Duration(seconds: 24), onTimeout: () {});
-          break;
-        } catch (_) {
-          try {
-            await _harvestStartPlayer.stop();
-          } catch (_) {}
-        }
-      }
     } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    for (final String name in <String>['harvest_game_start.wav', 'game_start.wav']) {
+      if (_disposed || _disposing) return;
+      try {
+        await _harvestStartPlayer.setReleaseMode(ReleaseMode.release);
+        await _harvestStartPlayer.setVolume(0.88);
+        await _harvestStartPlayer.play(AssetSource('sounds/$name'));
+        await _harvestStartPlayer.onPlayerComplete.first.timeout(
+          const Duration(seconds: 45),
+          onTimeout: () {
+            debugPrint('GardenAudioService: sounds/$name — onPlayerComplete timeout');
+          },
+        );
+        break;
+      } catch (e) {
+        debugPrint('GardenAudioService harvest start sting missing or failed: sounds/$name — $e');
+        try {
+          await _harvestStartPlayer.stop();
+        } catch (_) {}
+      }
+    }
+
+    if (_disposed || _disposing) return;
     await startHarvestRunBgm();
   }
 
-  /// موسيقى حلقة أثناء جولة الحصاد؛ لا تُوقفها مؤثرات الـ SFX.
   Future<void> startHarvestRunBgm() async {
+    if (_disposed || _disposing) return;
     if (_gardenBgmActive) return;
     Future<bool> tryPlay(String asset, double volume) async {
       try {
@@ -221,11 +238,16 @@ class GardenAudioService {
     }
     if (await tryPlay('sounds/garden_care_bgm.mp3', 0.30)) {
       _gardenBgmActive = true;
+      return;
     }
+    debugPrint(
+      'GardenAudioService: no harvest BGM asset found '
+      '(sounds/harvest_run_bgm.mp3|.wav, then bg_game_loop.mp3, garden_care_bgm.mp3).',
+    );
   }
 
-  /// إن لم تكن الخلفية شغّالة (بعد نهاية جولة أو أول تشغيل)، ابدأ حلقة الحصاد.
   Future<void> ensureHarvestRunBgm() async {
+    if (_disposed || _disposing) return;
     await startHarvestRunBgm();
   }
 
@@ -245,7 +267,6 @@ class GardenAudioService {
 
   Future<void> playRoundStart() async => _playSfx('garden_round_start.wav', volume: 0.62);
 
-  /// نفس ملفات لعبة التفاح إن وُجدت — للإيقاف المؤقت / الاستئناف.
   Future<void> playPause() async => _playSfx('pause.wav', volume: 0.75);
 
   Future<void> playResume() async => _playSfx('resume.wav', volume: 0.75);
@@ -265,6 +286,7 @@ class GardenAudioService {
   Future<void> playLevelUp() async => _playSfx('level_up.wav', volume: 0.78);
 
   Future<void> _playSfx(String fileName, {required double volume}) async {
+    if (_disposed || _disposing) return;
     final player = _sfxPlayers[_sfxRotor];
     _sfxRotor = (_sfxRotor + 1) % _sfxPlayers.length;
     try {

@@ -147,7 +147,7 @@ class HomeLogic {
       MoodInputVerdict.emptyInput =>
         'Please write something first before continuing.',
       MoodInputVerdict.textTooShort =>
-        'Please write a bit more in English (at least a few words and 15 characters) about how you feel, your mood, stress, or sleep.',
+        'Please write at least a short English feeling (for example: sad, stressed, anxious) about your mood, stress, or sleep.',
       MoodInputVerdict.textTooLong =>
         'Your message is too long. Please shorten it and try again.',
       MoodInputVerdict.englishOnlyViolation =>

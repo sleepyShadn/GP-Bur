@@ -41,9 +41,33 @@ class PlantedItem {
     }
   }
 
-  void applyAccelerator() {
+  /// After Firestore moves [plantTime] earlier (growth boost, not instant mature).
+  void syncAfterGrowthAdvance(DateTime newPlantTime) {
+    plantTime = newPlantTime;
     isAccelerated = true;
-    isFullyGrown = true;
-    remainingSeconds = 0;
+    updateRemainingTime();
+  }
+
+  PlantedItem copyWith({
+    Offset? position,
+    bool? isAccelerated,
+    DateTime? plantTime,
+    int? durationSeconds,
+    int? remainingSeconds,
+    bool? isFullyGrown,
+  }) {
+    return PlantedItem(
+      id: id,
+      seedType: seedType,
+      color: color,
+      icon: icon,
+      position: position ?? this.position,
+      isAccelerated: isAccelerated ?? this.isAccelerated,
+      plantTime: plantTime ?? this.plantTime,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      remainingSeconds: remainingSeconds ?? this.remainingSeconds,
+      isFullyGrown: isFullyGrown ?? this.isFullyGrown,
+      docId: docId,
+    );
   }
 }

@@ -8,6 +8,7 @@ import '../../domain/assessment_classifications.dart';
 import '../../data/analysis_data.dart';
 import 'garden_screen.dart';
 import 'home_screen.dart';
+import 'widgets/main_top_app_bar.dart';
 
 
 class AnalyticsPage extends StatefulWidget {
@@ -17,7 +18,7 @@ class AnalyticsPage extends StatefulWidget {
   State<AnalyticsPage> createState() => _AnalyticsPageState();
 }
 
-class _AnalyticsPageState extends State<AnalyticsPage> {
+class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProviderStateMixin {
   final AnalysisLogic _logic = AnalysisLogic();
   final AnalysisData _data = AnalysisData();
 
@@ -52,11 +53,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   bool _isLoading = true;
   bool _isGeneratingReport = false;
   String _userId = '';
+  late final AnimationController _shimmerController;
 
   @override
   void initState() {
     super.initState();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
     _getCurrentUser();
+  }
+
+  @override
+  void dispose() {
+    _shimmerController.dispose();
+    super.dispose();
   }
 
   Future<void> _getCurrentUser() async {
@@ -174,46 +186,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFE7CCCC), Color(0xFFEDE8DC), Color(0xFFC1CFA1)],
-            stops: [0.1, 0.5, 1.0],
+            colors: [
+              Color(0xFFEBD9DC),
+              Color(0xFFF2E5D9),
+              Color(0xFFE8F2E3),
+              Color(0xFFD1E2CF),
+            ],
+            stops: [0.0, 0.32, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
           child: _isLoading
-              ? const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xff7f9461)),
-            ),
-          )
+              ? _buildLoadingShimmer()
               : SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Color(0xff7f9461)),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Analytics & Statistics",
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xff7f9461),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(Icons.assessment_outlined, color: Color(0xff7f9461)),
-                  ],
-                ),
+                MainTopAppBar(title: 'Analytics', coins: _totalPoints),
                 const SizedBox(height: 16),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -653,6 +644,118 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
+  Widget _buildLoadingShimmer() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      child: Column(
+        children: [
+          _buildShimmerLine(
+            height: 56,
+            borderRadius: 18,
+            baseColor: const Color(0xffd9e7c8),
+            highlightColor: Colors.white.withValues(alpha: 0.85),
+          ),
+          const SizedBox(height: 14),
+          _buildShimmerLine(
+            height: 110,
+            borderRadius: 20,
+            baseColor: const Color(0xffe6f1f8),
+            highlightColor: Colors.white.withValues(alpha: 0.84),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _buildShimmerLine(
+                  height: 88,
+                  borderRadius: 16,
+                  baseColor: const Color(0xfff3e7de),
+                  highlightColor: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildShimmerLine(
+                  height: 88,
+                  borderRadius: 16,
+                  baseColor: const Color(0xffe9e3f4),
+                  highlightColor: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildShimmerLine(
+                  height: 88,
+                  borderRadius: 16,
+                  baseColor: const Color(0xffe7f0db),
+                  highlightColor: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildShimmerLine(
+                  height: 88,
+                  borderRadius: 16,
+                  baseColor: const Color(0xffe6f1f8),
+                  highlightColor: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildShimmerLine(
+            height: 320,
+            borderRadius: 20,
+            baseColor: const Color(0xffedf4e5),
+            highlightColor: Colors.white.withValues(alpha: 0.82),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShimmerLine({
+    required double height,
+    required double borderRadius,
+    required Color baseColor,
+    required Color highlightColor,
+  }) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(borderRadius),
+        color: baseColor,
+      ),
+      child: AnimatedBuilder(
+        animation: _shimmerController,
+        builder: (BuildContext context, Widget? child) {
+          final double t = _shimmerController.value;
+          final double beginX = -1.2 + (2.4 * t);
+          final double endX = beginX + 0.9;
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(borderRadius),
+              gradient: LinearGradient(
+                begin: Alignment(beginX, -0.3),
+                end: Alignment(endX, 0.3),
+                colors: <Color>[
+                  baseColor.withValues(alpha: 0.65),
+                  highlightColor,
+                  baseColor.withValues(alpha: 0.65),
+                ],
+                stops: const <double>[0.2, 0.5, 0.8],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildSummaryCard({required String title, required String value, required IconData icon}) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -703,15 +806,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       shape: const CircularNotchedRectangle(),
       notchMargin: 6,
       child: SizedBox(
-        height: 56,
+        height: 58,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _navItem(Icons.local_florist_outlined, "Garden", 0),
-            _navItem(Icons.storefront, "Shop", 1),
+            _navItem(Icons.storefront_outlined, "Shop", 1),
             const SizedBox(width: 36),
-            _navItem(Icons.bar_chart, "Analytics", 3),
-            _navItem(Icons.person_outline, "Profile", 4),
+            _navItem(Icons.bar_chart_rounded, "Analysis", 3),
+            _navItem(Icons.person_outline_rounded, "Profile", 4),
           ],
         ),
       ),
@@ -726,6 +829,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Icon(
               icon,
@@ -735,13 +839,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             const SizedBox(height: 2),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: isSelected ? const Color(0xff7f9461) : Colors.grey,
                 fontSize: isSelected ? 10 : 9,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

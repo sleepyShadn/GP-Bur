@@ -13,11 +13,14 @@ dependencies:
   fl_chart: ^1.1.1
   cloud_firestore: ^6.1.2
   firebase_analytics: ^12.1.2
+  firebase_core: ^4.3.0
   firebase_auth: ^6.1.4
   speech_to_text: ^7.3.0
   http: ^1.6.0
   firebase_messaging: ^16.1.2
   flutter_local_notifications: ^20.1.0
+  timezone: ^0.10.1
+  flutter_timezone: ^4.1.0
   path_provider: ^2.1.5
   printing: ^5.14.3
   v: ^0.0.0-origin.0.1
@@ -27,6 +30,7 @@ dependencies:
   lottie: ^3.3.3
   audioplayers: ^6.6.0
   shared_preferences: ^2.5.5
+  flame: ^1.35.1
 
 dev_dependencies:
   flutter_test:
@@ -48,7 +52,17 @@ flutter:
   assets:
     - assets/logo.png
     - assets/icon.jpeg
+    - assets/spring.jpeg
+    - assets/sunny.jpeg
+    - assets/automun.jpeg
+    - assets/winter.jpeg
+    - assets/flower0.jpeg
+    - assets/flower1.jpeg
+    - assets/flower_complete_red.jpeg
+    - assets/flower_complete_blue.jpeg
+    - assets/flower_complete_purple.jpeg
     - assets/animations/sky.json
+    - assets/animations/sunrise.json
     - assets/animations/flower_animation.json
     - assets/animations/Flower Animation.json
     - assets/animations/Flower falling Lottie JSON animation.json
@@ -57,11 +71,16 @@ flutter:
     - assets/animations/PLANT 123.json
     - assets/animations/Plant Gray.json
     - assets/animations/flower.json
+    - assets/animations/Plants.json
+    - assets/animations/Flower growing Lottie JSON animation.json
+    - assets/animations/Tree in the wind.json
     - assets/animations/water.json
     - assets/animations/Morning Background.json
     - assets/animations/tractor.json
+    - assets/animations/plant.json
     - assets/images/watering/watering_bg_spring.png
     - assets/images/watering/watering_bg_summer.png
+    - assets/images/profile/
     - assets/images/leaf_main.png
     - assets/images/tree_1.png
     - assets/images/tree_2.png

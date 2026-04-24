@@ -7,6 +7,7 @@ import 'dart:async';
 
 import '../domain/feeling_input_validation.dart';
 import '../domain/mood_input_verdict.dart';
+import '../services/local_notification_inbox_store.dart';
 import '../services/notification_service.dart';
 
 /// Result of validating and storing one follow-up answer.
@@ -404,8 +405,33 @@ Generate 6-8 questions total. Make sure each question has a unique ID.
     }
   }
 
+  /// Quick local guard to avoid generating goals for clearly positive check-ins.
+  bool _looksPurelyPositive(String text) {
+    final String t = text.trim().toLowerCase();
+    if (t.isEmpty) return false;
+
+    final bool hasPositiveCue = RegExp(
+      r"\b(i('m| am)?\s+)?(feel(ing)?\s+)?(good|great|fine|okay|ok|happy|content|calm|better|well)\b",
+    ).hasMatch(t) ||
+        RegExp(
+          r"\b(all good|doing well|so far so good|everything is (good|fine|okay|ok))\b",
+        ).hasMatch(t);
+
+    if (!hasPositiveCue) return false;
+
+    final bool hasDistressCue = RegExp(
+      r"\b(stress|stressed|anxious|anxiety|panic|sad|depress|angry|anger|upset|worry|worried|insomnia|can't sleep|cannot sleep|tired|exhausted|overwhelmed|lonely|burnout|bad|not okay|not ok|not fine|not good)\b",
+    ).hasMatch(t);
+
+    return !hasDistressCue;
+  }
+
   /// Single API gate after local checks: gibberish / non-English / off-topic / positive / valid.
   Future<MoodInputVerdict> classifyInitialMoodInput(String text) async {
+    if (_looksPurelyPositive(text)) {
+      return MoodInputVerdict.purelyPositive;
+    }
+
     try {
       final String prompt = '''
 You gatekeep an English-only mental-wellness check-in (not a medical diagnosis).
@@ -712,20 +738,17 @@ Return ONLY valid JSON in this exact format:
         title: 'Checking in',
         body: 'It looks like it\'s been a heavy few days. When you have a moment, let\'s take a breath and check in together.',
         payload: 'recurring_diagnosis',
+        inboxUserId: userId,
+        persistToInbox: false,
       );
 
-      await _firestore
-          .collection('users')
-          .doc(userId)
-          .collection('notifications')
-          .add({
-        'title': 'Early Warning Alert',
-        'body': 'Our system identified a recurring pattern in your recent logs.',
-        'type': 'recurring_diagnosis',
-        'diagnosis': newDiagnosis,
-        'timestamp': FieldValue.serverTimestamp(),
-        'read': false,
-      });
+      await LocalNotificationInboxStore.instance.append(
+        userId: userId,
+        title: 'Early Warning Alert',
+        body: 'Our system identified a recurring pattern in your recent logs.',
+        type: 'recurring_diagnosis',
+        diagnosis: newDiagnosis,
+      );
 
       return true;
     }
@@ -734,54 +757,61 @@ Return ONLY valid JSON in this exact format:
 
   Future<bool> toggleActivity(String userId, String analysisId, int index, Map<String, dynamic> activity) async {
     try {
-      DocumentSnapshot analysisDoc = await _firestore
-          .collection('users')
-          .doc(userId)
+      final DocumentReference userRef =
+          _firestore.collection('users').doc(userId);
+      final DocumentReference analysisRef = userRef
           .collection('analyses')
-          .doc(analysisId)
-          .get();
+          .doc(analysisId);
 
-      if (analysisDoc.exists) {
-        var data = analysisDoc.data() as Map<String, dynamic>;
-        List<dynamic> activities = List.from(data['activities'] ?? []);
+      DocumentSnapshot analysisDoc = await analysisRef.get();
+      if (!analysisDoc.exists) return false;
 
-        Timestamp? expiryTimestamp = data['goalExpiryDate'];
-        bool isGoalCompleted = data['isGoalCompleted'] ?? false;
+      final Map<String, dynamic> data = analysisDoc.data() as Map<String, dynamic>;
+      final List<dynamic> activities = List<dynamic>.from(data['activities'] ?? []);
+      if (index >= activities.length) return false;
 
-        if (expiryTimestamp != null) {
-          DateTime expiryDate = expiryTimestamp.toDate();
-          if (DateTime.now().isAfter(expiryDate) || isGoalCompleted) {
-            return false;
-          }
-        }
-
-        if (index < activities.length) {
-          DateTime now = DateTime.now();
-          String todayKey = '${now.year}-${now.month}-${now.day}';
-
-          activities[index]['completed'] = true;
-          activities[index]['lastCompletedDate'] = Timestamp.fromDate(now);
-
-          if (activities[index]['dailyHistory'] == null) {
-            activities[index]['dailyHistory'] = {};
-          }
-          activities[index]['dailyHistory'][todayKey] = true;
-
-          await _firestore
-              .collection('users')
-              .doc(userId)
-              .collection('analyses')
-              .doc(analysisId)
-              .update({'activities': activities});
-
-          int points = activities[index]['points'] ?? 5;
-          await _firestore.collection('users').doc(userId).update({
-            'points': FieldValue.increment(points),
-          });
-
-          return true;
+      final Timestamp? expiryTimestamp = data['goalExpiryDate'];
+      final bool isGoalCompleted = data['isGoalCompleted'] ?? false;
+      if (expiryTimestamp != null) {
+        final DateTime expiryDate = expiryTimestamp.toDate();
+        if (DateTime.now().isAfter(expiryDate) || isGoalCompleted) {
+          return false;
         }
       }
+
+      final DateTime now = DateTime.now();
+      final String todayKey = '${now.year}-${now.month}-${now.day}';
+      final Map<String, dynamic> target =
+          Map<String, dynamic>.from(activities[index] as Map);
+      final Map<String, dynamic> history = Map<String, dynamic>.from(
+        target['dailyHistory'] as Map? ?? <String, dynamic>{},
+      );
+      final bool isCompletedToday = history[todayKey] == true;
+      final bool newValue = !isCompletedToday;
+      final int points = (target['points'] as num?)?.toInt() ?? 5;
+
+      target['completed'] = newValue;
+      target['lastCompletedDate'] = newValue ? Timestamp.fromDate(now) : null;
+      history[todayKey] = newValue;
+      target['dailyHistory'] = history;
+      activities[index] = target;
+
+      await analysisRef.update(<String, dynamic>{'activities': activities});
+
+      if (newValue) {
+        await userRef.update(<String, dynamic>{
+          'points': FieldValue.increment(points),
+        });
+      } else {
+        final DocumentSnapshot userDoc = await userRef.get();
+        final int currentPoints =
+            ((userDoc.data() as Map<String, dynamic>?)?['points'] as num?)
+                    ?.toInt() ??
+                0;
+        final int updatedPoints = (currentPoints - points).clamp(0, 1 << 31);
+        await userRef.update(<String, dynamic>{'points': updatedPoints});
+      }
+      return true;
     } catch (e) {
       print('Error updating activity: $e');
     }

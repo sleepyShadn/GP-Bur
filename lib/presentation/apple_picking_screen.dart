@@ -29,6 +29,7 @@ class _ApplePickingScreenState extends State<ApplePickingScreen>
   bool _isGameActive = false;
   bool _isGameOver = false;
   bool _isPaused = false;
+  bool _isExiting = false;
 
   double _bucketPosition = 0.5;
   final double _baseBucketWidth = 0.2;
@@ -417,6 +418,22 @@ class _ApplePickingScreenState extends State<ApplePickingScreen>
     }
   }
 
+  Future<void> _confirmExitGame() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    _isGameActive = false;
+    _isPaused = false;
+    _gameTimer?.cancel();
+    _appleSpawnTimer?.cancel();
+    _levelUpBannerTimer?.cancel();
+    _animationController.stop();
+    await _audio.stopPreGameLoop();
+    await _audio.stopBgm();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
   void _pauseGame() {
     setState(() => _isPaused = !_isPaused);
     if (_isPaused) {
@@ -537,9 +554,12 @@ class _ApplePickingScreenState extends State<ApplePickingScreen>
                                     onTap: () {
                                       _audio.playButtonTap();
                                       if (_isGameActive) {
-                                        _logic.showExitDialog(context, _endGame);
+                                        _logic.showExitDialog(
+                                          context,
+                                          () => unawaited(_confirmExitGame()),
+                                        );
                                       } else {
-                                        Navigator.pop(context);
+                                        unawaited(_confirmExitGame());
                                       }
                                     },
                                     child: Container(

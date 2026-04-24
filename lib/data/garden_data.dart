@@ -2,6 +2,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import '../domain/garden_logic.dart';
 import '../presentation/garden_planted_item.dart';
 
 class GardenData {
@@ -61,7 +62,8 @@ class GardenData {
       for (var doc in gardenSnapshot.docs) {
         var data = doc.data() as Map<String, dynamic>;
         DateTime plantTime = (data['plantTime'] as Timestamp).toDate();
-        int durationSeconds = data['durationSeconds'] ?? 60;
+        int durationSeconds =
+            data['durationSeconds'] ?? GardenLogic.regularGrowSeconds;
         DateTime finishTime = plantTime.add(Duration(seconds: durationSeconds));
         bool isFullyGrown = DateTime.now().isAfter(finishTime);
         int remainingSeconds = isFullyGrown ? 0 : finishTime.difference(DateTime.now()).inSeconds;
@@ -122,19 +124,42 @@ class GardenData {
     }
   }
 
-  Future<void> acceleratePlant(String userId, String docId) async {
+  /// Moves [plantTime] earlier by up to [GardenLogic.growthAcceleratorAdvanceSeconds],
+  /// or by all remaining time if less — never replaces the multi-day habit model.
+  Future<DateTime?> acceleratePlantGrowDay(String userId, String docId) async {
+    if (userId.isEmpty) return null;
     try {
-      await _firestore
+      final DocumentReference<Map<String, dynamic>> ref = _firestore
           .collection('users')
           .doc(userId)
           .collection('garden')
-          .doc(docId)
-          .update({
-        'plantTime': Timestamp.fromDate(DateTime.now().add(const Duration(seconds: -1))),
+          .doc(docId);
+      final DocumentSnapshot<Map<String, dynamic>> snap = await ref.get();
+      if (!snap.exists) return null;
+      final Map<String, dynamic> data = snap.data()!;
+      final DateTime plantTime = (data['plantTime'] as Timestamp).toDate();
+      final int durationSeconds =
+          (data['durationSeconds'] as num?)?.toInt() ??
+              GardenLogic.regularGrowSeconds;
+      final DateTime finish =
+          plantTime.add(Duration(seconds: durationSeconds));
+      final DateTime now = DateTime.now();
+      final int remaining = finish.difference(now).inSeconds;
+      if (remaining <= 0) {
+        return null;
+      }
+      final int skip = remaining < GardenLogic.growthAcceleratorAdvanceSeconds
+          ? remaining
+          : GardenLogic.growthAcceleratorAdvanceSeconds;
+      final DateTime newPlantTime = plantTime.subtract(Duration(seconds: skip));
+      await ref.update(<String, dynamic>{
+        'plantTime': Timestamp.fromDate(newPlantTime),
         'isAccelerated': true,
       });
+      return newPlantTime;
     } catch (e) {
       print('Error accelerating plant: $e');
+      return null;
     }
   }
 

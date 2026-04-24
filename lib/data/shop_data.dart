@@ -28,6 +28,32 @@ class ShopData {
     return 0;
   }
 
+  Future<Map<String, int>> loadUserInventory(String userId) async {
+    if (userId.isEmpty) return <String, int>{};
+    try {
+      final DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) return <String, int>{};
+
+      final Map<String, dynamic> data = userDoc.data() as Map<String, dynamic>;
+      final Map<String, dynamic> rawInventory = data['seedsInventory'] is Map<String, dynamic>
+          ? Map<String, dynamic>.from(data['seedsInventory'] as Map<String, dynamic>)
+          : <String, dynamic>{};
+
+      final Map<String, int> parsed = <String, int>{};
+      rawInventory.forEach((String key, dynamic value) {
+        if (value is int) {
+          parsed[key] = value;
+        } else if (value is num) {
+          parsed[key] = value.toInt();
+        }
+      });
+      return parsed;
+    } catch (e) {
+      print('Error loading inventory: $e');
+      return <String, int>{};
+    }
+  }
+
   Future<bool> buyItem(String userId, ShopItem item, int userPoints) async {
     try {
       final batch = _firestore.batch();

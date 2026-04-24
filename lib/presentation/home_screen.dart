@@ -1,15 +1,27 @@
 // ========== lib/presentation/home_screen.dart ==========
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:appforhumman/presentation/shop_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../domain/assessment_classifications.dart';
 import '../../domain/feeling_input_validation.dart';
+import '../../domain/garden_care_logic.dart';
 import '../../domain/home_logic.dart';
 import '../../domain/mood_input_verdict.dart';
+import '../../data/garden_care_data.dart';
 import '../../data/home_data.dart';
+import '../../services/garden_care_notification_coordinator.dart';
+import '../../services/local_notification_inbox_store.dart';
+import '../../services/notification_service.dart';
+import 'widgets/main_top_app_bar.dart';
 import 'all_goals_and_activities_page.dart';
 import 'analysis_screen.dart';
 import 'garden_screen.dart';
+import 'notifications_screen.dart';
 import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,9 +31,10 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final HomeLogic _logic = HomeLogic();
   final HomeData _data = HomeData();
+  final GardenCareData _gardenCareData = GardenCareData();
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
@@ -29,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _selectedIndex = 2;
 
-  String _currentClassification = '';
   String _currentGoal = '';
   List<Map<String, dynamic>> _currentActivities = [];
   bool _isAnalyzing = false;
@@ -45,33 +57,59 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String _userId = '';
   int _userPoints = 0;
+  String? _profileImageBase64;
   String _currentAnalysisId = '';
   int _todayAnalysisCount = 0;
   List<String> _recentDiagnoses = [];
+
+  int _gardenVitality = GardenCareLogic.defaultVitality;
+  bool _gardenHasPlants = false;
 
   // Question management UI state
   bool _isCollectingInfo = false;
   String _currentQuestion = '';
   int _remainingQuestions = 0;
   bool _isGeneratingQuestions = false;
+  bool _isSubmittingAnswer = false;
+
+  int _unreadNotificationsCount = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _speech = stt.SpeechToText();
     _getCurrentUser();
     _checkTodayAnalysisCount();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initNotifications();
-    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    LocalNotificationInboxStore.instance.removeListener(_onLocalInboxChanged);
     _data.cancelSubscription();
     _textController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _userId.isNotEmpty) {
+      unawaited(_loadGardenCare());
+    }
+  }
+
+  Future<void> _loadGardenCare() async {
+    if (_userId.isEmpty) return;
+    final int v = await _gardenCareData.loadAndReconcileVitality(_userId);
+    final bool has = await _gardenCareData.userHasAnyPlant(_userId);
+    if (mounted) {
+      setState(() {
+        _gardenVitality = v;
+        _gardenHasPlants = has;
+      });
+    }
+    await GardenCareNotificationCoordinator().syncForUser(_userId);
   }
 
   Future<void> _initNotifications() async {
@@ -87,10 +125,49 @@ class _HomeScreenState extends State<HomeScreen> {
         _userId = user['uid'] ?? '';
       });
       _loadUserPoints();
+      _loadProfileImage();
       _loadRecentDiagnoses();
       _checkTodayAnalysisCount();
       _listenToLatestAnalysis();
+      await _loadGardenCare();
+      await _initNotifications();
+      _listenUnreadNotificationsCount();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _userId.isEmpty) return;
+        unawaited(
+          NotificationService().tryOpenInboxFromNotificationColdStart(_userId),
+        );
+      });
     }
+  }
+
+  void _onLocalInboxChanged() {
+    if (!mounted || _userId.isEmpty) return;
+    unawaited(_syncUnreadFromLocalInbox());
+  }
+
+  Future<void> _syncUnreadFromLocalInbox() async {
+    if (_userId.isEmpty) return;
+    final int unread = await LocalNotificationInboxStore.instance.unreadCount(_userId);
+    if (mounted) {
+      setState(() => _unreadNotificationsCount = unread);
+    }
+  }
+
+  void _listenUnreadNotificationsCount() {
+    LocalNotificationInboxStore.instance.removeListener(_onLocalInboxChanged);
+    if (_userId.isEmpty) return;
+    LocalNotificationInboxStore.instance.addListener(_onLocalInboxChanged);
+    unawaited(_syncUnreadFromLocalInbox());
+  }
+
+  void _openNotificationsScreen() {
+    if (_userId.isEmpty) return;
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => NotificationsScreen(userId: _userId),
+      ),
+    );
   }
 
   void _listenToLatestAnalysis() {
@@ -98,7 +175,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (data != null && mounted) {
         setState(() {
           _currentAnalysisId = data['analysisId'] ?? '';
-          _currentClassification = data['classification'] ?? '';
           _currentGoal = data['goal'] ?? '';
           _goalStartDate = data['goalStartDate'];
           _goalDurationDays = data['goalDurationDays'];
@@ -113,6 +189,31 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadUserPoints() async {
     final points = await _data.loadUserPoints(_userId);
     if (mounted) setState(() => _userPoints = points);
+  }
+
+  Future<void> _loadProfileImage() async {
+    if (_userId.isEmpty) return;
+    try {
+      final DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore
+          .instance
+          .collection('users')
+          .doc(_userId)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _profileImageBase64 = doc.data()?['profileImageBase64'] as String?;
+      });
+    } catch (_) {}
+  }
+
+  Uint8List? _profileImageBytes() {
+    final String? raw = _profileImageBase64;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return base64Decode(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _loadRecentDiagnoses() async {
@@ -234,6 +335,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // NEW: Submit answer during question collection
   Future<void> _submitAnswer() async {
+    if (_isSubmittingAnswer) {
+      return;
+    }
+
+    setState(() => _isSubmittingAnswer = true);
+
     final SubmitAnswerOutcome outcome =
         await _data.submitAnswerValidated(_textController.text);
     if (!mounted) {
@@ -241,6 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (outcome.isRejected) {
+      setState(() => _isSubmittingAnswer = false);
       _logic.showMoodInputRejection(context, outcome.rejection!);
       return;
     }
@@ -249,18 +357,44 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isCollectingInfo = false;
         _isAnalyzing = true;
+        _isSubmittingAnswer = false;
       });
 
       await _performAnalysisWithCollectedInfo();
     } else {
       _textController.clear();
       _updateCurrentQuestion();
+      setState(() => _isSubmittingAnswer = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Answer recorded. Next question below.'),
-          duration: Duration(seconds: 1),
-          backgroundColor: Color(0xff7f9461),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(
+                Icons.check_circle_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Answer saved. Next question is ready.',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(milliseconds: 1400),
+          backgroundColor: const Color(0xff7f9461),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       );
     }
@@ -295,7 +429,9 @@ class _HomeScreenState extends State<HomeScreen> {
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Analysis complete! Diagnosis: ${result['classification']}'),
+            content: const Text(
+              'Analysis complete! Your goal and activities are ready below.',
+            ),
             backgroundColor: const Color(0xff7f9461),
             duration: const Duration(seconds: 2),
           ),
@@ -326,15 +462,28 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_userId.isEmpty || _currentAnalysisId.isEmpty || _isGoalCompleted) return;
 
     final activity = _currentActivities[index];
-    if (_logic.isActivityCompletedToday(activity)) return;
+    final bool wasCompletedToday = _logic.isActivityCompletedToday(activity);
+    final DateTime now = DateTime.now();
+    final String todayKey = '${now.year}-${now.month}-${now.day}';
+    final bool wasTouchedToday =
+        (activity['dailyHistory'] as Map<String, dynamic>?)?.containsKey(todayKey) ??
+            false;
 
     final success = await _data.toggleActivity(_userId, _currentAnalysisId, index, activity);
 
     if (success && mounted) {
-      int pointsToAdd = (activity['points'] as num?)?.toInt() ?? 5;
+      final int points = (activity['points'] as num?)?.toInt() ?? 5;
+      final int delta = wasCompletedToday ? -points : points;
+      int newVitality = _gardenVitality;
+      if (!wasCompletedToday && !wasTouchedToday) {
+        newVitality = await _gardenCareData.recordActivityCareBoost(_userId);
+      }
+      if (!mounted) return;
       setState(() {
-        _userPoints += pointsToAdd;
+        _userPoints = (_userPoints + delta).clamp(0, 1 << 31);
+        _gardenVitality = newVitality;
       });
+      await GardenCareNotificationCoordinator().syncForUser(_userId);
     }
   }
 
@@ -360,13 +509,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isBusy =
+        _isAnalyzing || _isGeneratingQuestions || _isSubmittingAnswer;
+    final bool canStartCheckIn = !isBusy && _todayAnalysisCount < 2;
+
     return Scaffold(
+      extendBody: true,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFE7CCCC), Color(0xFFEDE8DC), Color(0xFFC1CFA1)],
+            colors: [
+              Color.fromARGB(255, 236, 177, 187),
+              Color.fromARGB(255, 252, 226, 202),
+              Color.fromARGB(255, 196, 214, 188),
+              Color(0xFFD1E2CF),
+            ],
+            stops: [0.0, 0.32, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
@@ -376,69 +536,29 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 16),
-                Row(
-                  children: [
-                    CircleAvatar(
-                      backgroundColor: Colors.white.withOpacity(0.5),
-                      radius: 22,
-                      child: const Icon(Icons.person, color: Color(0xff7f9461), size: 24),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _logic.getWelcomeMessage(_currentClassification),
-                            style: const TextStyle(
-                              color: Color(0xff7f9461),
-                              fontWeight: FontWeight.w500,
-                              fontSize: 14,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (_todayAnalysisCount > 0)
-                            Text(
-                              "Today's entries: $_todayAnalysisCount/2",
-                              style: const TextStyle(
-                                color: Color(0xff7f9461),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xff7f9461).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.stars, color: Color(0xff7f9461), size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            '$_userPoints',
-                            style: const TextStyle(
-                              color: Color(0xff7f9461),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                MainTopAppBar(
+                  title: 'Home',
+                  coins: _userPoints,
+                  primaryTint: const Color(0xffdceccf),
+                  secondaryTint: const Color(0xfff8fcf5),
+                  accentColor: const Color(0xff496238),
+                  unreadNotificationsCount: _unreadNotificationsCount,
+                  onNotificationsPressed: _userId.isEmpty ? null : _openNotificationsScreen,
                 ),
+                const SizedBox(height: 12),
+                _buildHomeWelcomeHeader(),
+                const SizedBox(height: 16),
+                _buildGardenVitalityCard(),
                 const SizedBox(height: 24),
+                _buildSectionTitle(
+                  icon: Icons.psychology_alt_outlined,
+                  title: 'Daily Check-in',
+                ),
+                const SizedBox(height: 10),
                 const Text(
                   "How are you",
                   style: TextStyle(
-                    fontSize: 32,
+                    fontSize: 30,
                     fontWeight: FontWeight.bold,
                     color: Color(0xff7f9461),
                     height: 1.1,
@@ -447,7 +567,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const Text(
                   "feeling today?",
                   style: TextStyle(
-                    fontSize: 32,
+                    fontSize: 30,
                     fontWeight: FontWeight.bold,
                     color: Color(0xff7f9461),
                     height: 1.1,
@@ -459,13 +579,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(30),
+                    color: Colors.white.withOpacity(0.97),
+                    borderRadius: BorderRadius.circular(26),
+                    border: Border.all(
+                      color: const Color(0xff7f9461).withOpacity(0.15),
+                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, 5),
+                        color: const Color(0xff7f9461).withOpacity(0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
                       ),
                     ],
                   ),
@@ -475,27 +598,65 @@ class _HomeScreenState extends State<HomeScreen> {
                         controller: _textController,
                         maxLines: 4,
                         minLines: 3,
-                        enabled: !_isAnalyzing && !_isGeneratingQuestions,
+                        enabled: !isBusy,
                         decoration: InputDecoration(
                           hintText: _isCollectingInfo
                               ? 'Type your answer in English...'
                               : "How are you feeling? (English only — describe mood, stress, or sleep)",
                           hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                           filled: true,
-                          fillColor: const Color(0xFFE7CCCC).withOpacity(0.3),
+                          fillColor: const Color(0xFFE7CCCC).withOpacity(0.22),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(20),
-                            borderSide: BorderSide.none,
+                            borderSide: BorderSide(
+                              color: const Color(0xff7f9461).withOpacity(0.15),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(
+                              color: const Color(0xff7f9461).withOpacity(0.14),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: const BorderSide(
+                              color: Color(0xff7f9461),
+                              width: 1.3,
+                            ),
                           ),
                           contentPadding: const EdgeInsets.all(16),
                         ),
                       ),
+                      if (!_isCollectingInfo) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 14,
+                              color: const Color(0xff7f9461).withOpacity(0.6),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Write naturally in English. Short clear details help the assistant understand you better.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: const Color(0xff7f9461).withOpacity(0.7),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: (_isAnalyzing || _isCollectingInfo || _isGeneratingQuestions) ? null : _listen,
+                              onPressed:
+                                  (isBusy || _isCollectingInfo) ? null : _listen,
                               icon: Icon(
                                 _isListening ? Icons.mic : Icons.mic_none,
                                 color: Colors.white,
@@ -518,11 +679,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: (_isAnalyzing || _todayAnalysisCount >= 2 || _isGeneratingQuestions)
+                              onPressed: (isBusy || _todayAnalysisCount >= 2)
                                   ? null
                                   : (_isCollectingInfo ? _submitAnswer : _analyzeMood),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: _todayAnalysisCount >= 2
+                                backgroundColor: !canStartCheckIn
                                     ? Colors.grey
                                     : const Color(0xff7f9461),
                                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -531,7 +692,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 elevation: 0,
                               ),
-                              child: _isAnalyzing || _isGeneratingQuestions
+                              child: isBusy
                                   ? const SizedBox(
                                 width: 20,
                                 height: 20,
@@ -565,12 +726,26 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xff7f9461).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: const Color(0xff7f9461).withOpacity(0.3),
-                        width: 1.5,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          const Color(0xff7f9461).withOpacity(0.18),
+                          const Color(0xFFC1CFA1).withOpacity(0.22),
+                        ],
                       ),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(
+                        color: const Color(0xff7f9461).withOpacity(0.25),
+                        width: 1.2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xff7f9461).withOpacity(0.12),
+                          blurRadius: 16,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -580,7 +755,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: const Color(0xff7f9461).withOpacity(0.2),
+                                color: Colors.white.withOpacity(0.55),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Icon(
@@ -593,30 +768,56 @@ class _HomeScreenState extends State<HomeScreen> {
                             Expanded(
                               child: Text(
                                 "Question ${_data.getAllQuestions().length - _remainingQuestions + 1} of ${_data.getAllQuestions().length}",
+                                style: TextStyle(
+                                  color: Color(0xff7f9461),
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13.5,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.58),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '$_remainingQuestions left',
                                 style: const TextStyle(
                                   color: Color(0xff7f9461),
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 16),
-                        Text(
-                          _currentQuestion,
-                          style: const TextStyle(
-                            color: Color(0xff7f9461),
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                            height: 1.4,
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.62),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            _currentQuestion,
+                            style: const TextStyle(
+                              color: Color(0xff7f9461),
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              height: 1.45,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.5),
+                            color: Colors.white.withOpacity(0.58),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
@@ -629,7 +830,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               const SizedBox(width: 8),
                               const Expanded(
                                 child: Text(
-                                  "Type your answer in the box above and click 'Submit Answer'",
+                                  "Type your answer above, then tap Submit once.",
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Color(0xff7f9461),
@@ -679,42 +880,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
 
                 const SizedBox(height: 24),
-
-                // Analysis result display
-                if (_currentClassification.isNotEmpty) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: const Color(0xff7f9461).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xff7f9461).withOpacity(0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "Analysis Result:",
-                          style: TextStyle(
-                            color: Color(0xff7f9461),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _currentClassification.toUpperCase(),
-                          style: const TextStyle(
-                            color: Color(0xff7f9461),
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
+                _buildSectionTitle(
+                  icon: Icons.track_changes_outlined,
+                  title: 'Current Plan',
+                ),
+                const SizedBox(height: 10),
 
                 if (_goalDurationDays != null)
                   Container(
@@ -757,8 +927,71 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 14),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC1CFA1).withOpacity(0.22),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(
+                                Icons.spa_outlined,
+                                color: Color(0xff7f9461),
+                                size: 18,
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Each completed activity plants a healthier habit. Use your points to buy seeds, then grow your garden.',
+                                  style: TextStyle(
+                                    color: Color(0xff7f9461),
+                                    fontSize: 12.5,
+                                    height: 1.35,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         ...List.generate(_currentActivities.length, (index) => _buildActivityItem(index)),
                         const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ShopPage()),
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.storefront_outlined,
+                              color: Color(0xff7f9461),
+                              size: 18,
+                            ),
+                            label: const Text(
+                              "Get Seeds from Shop",
+                              style: TextStyle(
+                                color: Color(0xff7f9461),
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(
+                                color: const Color(0xff7f9461).withOpacity(0.4),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
@@ -791,6 +1024,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                   ),
+                if (_currentActivities.isEmpty)
+                  _buildCard(
+                    icon: Icons.eco_outlined,
+                    title: "NO ACTIVITIES YET",
+                    child: _buildActivitiesEmptyState(),
+                  ),
                 const SizedBox(height: 100),
               ],
             ),
@@ -800,11 +1039,126 @@ class _HomeScreenState extends State<HomeScreen> {
       bottomNavigationBar: _buildBottomNav(),
       floatingActionButton: FloatingActionButton(
         onPressed: () => _onItemTapped(2),
-        backgroundColor: const Color(0xff7f9461),
+        backgroundColor: const Color(0xff6f8551),
+        elevation: 3,
         shape: const CircleBorder(),
-        child: const Icon(Icons.home, color: Colors.white, size: 28),
+        child: const Icon(Icons.home_rounded, color: Colors.white, size: 29),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+    );
+  }
+
+  Widget _buildGardenVitalityCard() {
+    if (_userId.isEmpty) return const SizedBox.shrink();
+
+    final GardenVitalityTier tier = GardenCareLogic.tierFromVitality(_gardenVitality);
+    final Color accent = switch (tier) {
+      GardenVitalityTier.thriving => const Color(0xff7f9461),
+      GardenVitalityTier.steady => const Color(0xFFC1A564),
+      GardenVitalityTier.fading => const Color(0xFFB07A6A),
+    };
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () {
+          Navigator.push<void>(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const GardenPage()),
+          ).then((_) => _loadGardenCare());
+        },
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.94),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: accent.withOpacity(0.45)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.local_florist_rounded, color: accent, size: 22),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Garden vitality',
+                    style: TextStyle(
+                      color: Color(0xff7f9461),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '$_gardenVitality%',
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: (_gardenVitality.clamp(0, 100)) / 100.0,
+                  minHeight: 8,
+                  backgroundColor: const Color(0xFFE7CCCC).withOpacity(0.35),
+                  valueColor: AlwaysStoppedAnimation<Color>(accent),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                GardenCareLogic.vitalityHeadline(
+                  _gardenVitality,
+                  hasPlants: _gardenHasPlants,
+                ),
+                style: TextStyle(
+                  color: const Color(0xff7f9461).withOpacity(0.92),
+                  fontSize: 13,
+                  height: 1.35,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                GardenCareLogic.vitalityHint(_gardenVitality),
+                style: TextStyle(
+                  color: const Color(0xff7f9461).withOpacity(0.65),
+                  fontSize: 11.5,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Text(
+                    'Open garden',
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                    ),
+                  ),
+                  Icon(Icons.chevron_right_rounded, color: accent, size: 20),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -812,7 +1166,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final activity = _currentActivities[index];
     final isCompletedToday = _logic.isActivityCompletedToday(activity);
     final lastCompleted = activity['lastCompletedDate'] as DateTime?;
-    final canCompleteToday = !_isGoalCompleted && !isCompletedToday;
+    final canToggleToday = !_isGoalCompleted;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -831,7 +1185,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             children: [
               GestureDetector(
-                onTap: canCompleteToday ? () => _toggleActivity(index) : null,
+                onTap: canToggleToday ? () => _toggleActivity(index) : null,
                 child: Container(
                   width: 24,
                   height: 24,
@@ -839,7 +1193,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: isCompletedToday ? const Color(0xff7f9461) : Colors.white,
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                      color: canCompleteToday ? const Color(0xff7f9461) : Colors.grey,
+                      color: canToggleToday ? const Color(0xff7f9461) : Colors.grey,
                       width: 2,
                     ),
                   ),
@@ -960,13 +1314,16 @@ class _HomeScreenState extends State<HomeScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
-        borderRadius: BorderRadius.circular(25),
+        color: Colors.white.withOpacity(0.97),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xff7f9461).withOpacity(0.14),
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
+            color: const Color(0xff7f9461).withOpacity(0.08),
+            blurRadius: 14,
+            offset: const Offset(0, 7),
           ),
         ],
       ),
@@ -988,8 +1345,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Text(
                   title,
                   style: const TextStyle(
-                    color: Color(0xff7f9461),
-                    fontWeight: FontWeight.bold,
+                    color: Color(0xff6f8551),
+                    fontWeight: FontWeight.w800,
                     fontSize: 16,
                   ),
                   maxLines: 1,
@@ -1003,7 +1360,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text(
               content,
               style: const TextStyle(
-                color: Color(0xff7f9461),
+                color: Color(0xff6f8551),
                 fontWeight: FontWeight.bold,
                 fontSize: 15,
                 height: 1.4,
@@ -1015,22 +1372,208 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSectionTitle({required IconData icon, required String title}) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xff7f9461).withOpacity(0.14),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xff7f9461), size: 18),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xff7f9461),
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHomeWelcomeHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.82),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: const Color(0xff5f7744).withOpacity(0.15),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xff5f7744).withOpacity(0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xffe2efda),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: _profileImageBytes() != null
+                  ? Image.memory(
+                      _profileImageBytes()!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.person_rounded,
+                        color: Color(0xff4f6a3d),
+                        size: 23,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.person_rounded,
+                      color: Color(0xff4f6a3d),
+                      size: 23,
+                    ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _logic.getWelcomeMessage(''),
+                  style: const TextStyle(
+                    color: Color(0xff4f6a3d),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                  maxLines: 3,
+                ),
+                if (_todayAnalysisCount > 0)
+                  Text(
+                    "Today's entries: $_todayAnalysisCount/2",
+                    style: TextStyle(
+                      color: const Color(0xff4f6a3d).withOpacity(0.85),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActivitiesEmptyState() {
+    final String body = _gardenHasPlants
+        ? 'Your garden is ready for growth. Start a quick check-in to generate today\'s habit activities and keep your plants thriving.'
+        : 'Start a quick check-in to generate your first habit activities. Then use points to buy seeds and grow your first plant.';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          body,
+          style: TextStyle(
+            color: const Color(0xff7f9461).withOpacity(0.9),
+            fontSize: 13.5,
+            height: 1.35,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'Write how you feel above, then tap Start to generate today\'s activities.',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xff7f9461),
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(
+              Icons.psychology_alt_outlined,
+              color: Color(0xff7f9461),
+              size: 18,
+            ),
+            label: const Text(
+              "Create Today's Plan",
+              style: TextStyle(
+                color: Color(0xff7f9461),
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: const Color(0xff7f9461).withOpacity(0.4)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ShopPage()),
+              );
+            },
+            icon: const Icon(Icons.storefront_outlined, color: Colors.white, size: 18),
+            label: Text(
+              _gardenHasPlants ? 'Get More Seeds' : 'Get Your First Seed',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 13,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xff7f9461),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBottomNav() {
     return BottomAppBar(
       color: Colors.white,
       shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
-      elevation: 8,
+      notchMargin: 6,
       child: SizedBox(
-        height: 60,
+        height: 58,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _navItem(Icons.local_florist_outlined, "Garden", 0),
-            _navItem(Icons.storefront, "Shop", 1),
-            const SizedBox(width: 40),
-            _navItem(Icons.bar_chart, "Analysis", 3),
-            _navItem(Icons.person_outline, "Profile", 4),
+            _navItem(Icons.storefront_outlined, "Shop", 1),
+            const SizedBox(width: 36),
+            _navItem(Icons.bar_chart_rounded, "Analysis", 3),
+            _navItem(Icons.person_outline_rounded, "Profile", 4),
           ],
         ),
       ),
@@ -1041,24 +1584,31 @@ class _HomeScreenState extends State<HomeScreen> {
     bool isSelected = _selectedIndex == index;
     return GestureDetector(
       onTap: () => _onItemTapped(index),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            color: isSelected ? const Color(0xff7f9461) : Colors.grey,
-            size: isSelected ? 24 : 22,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
               color: isSelected ? const Color(0xff7f9461) : Colors.grey,
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              size: isSelected ? 22 : 20,
             ),
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: isSelected ? const Color(0xff7f9461) : Colors.grey,
+                fontSize: isSelected ? 10 : 9,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

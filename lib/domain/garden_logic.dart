@@ -28,11 +28,20 @@ class GardenLogic {
     return Colors.green;
   }
 
+  /// Real-world growth windows (seconds). Tied to daily habits: no more “minutes to mature”.
+  static const int regularGrowSeconds = 86400; // 1 day
+  static const int rareGrowSeconds = 259200; // 3 days
+  static const int legendaryGrowSeconds = 604800; // 7 days
+
+  /// One use of Growth Accelerator: advances real growth by this many seconds (≈ one day),
+  /// capped by actual time left — does not replace daily care / vitality.
+  static const int growthAcceleratorAdvanceSeconds = 86400;
+
   int getSeedDuration(String seedType) {
-    if (seedType.contains('Regular')) return 60;
-    if (seedType.contains('Rare')) return 360;
-    if (seedType.contains('Legendary')) return 900;
-    return 60;
+    if (seedType.contains('Regular')) return regularGrowSeconds;
+    if (seedType.contains('Rare')) return rareGrowSeconds;
+    if (seedType.contains('Legendary')) return legendaryGrowSeconds;
+    return regularGrowSeconds;
   }
 
   int getHarvestPoints(String seedType) {
@@ -40,6 +49,24 @@ class GardenLogic {
     if (seedType.contains('Rare')) return 12;
     if (seedType.contains('Regular')) return 7;
     return 0;
+  }
+
+  /// Mature / harvest-ready Lottie per seed type (three bloom variants).
+  ///
+  /// - **Regular** → green bloom (`Plants.json`)
+  /// - **Rare** → blue bloom (`Flower growing Lottie JSON animation.json`)
+  /// - **Legendary** → red bloom (`flower.json`, previous default for all tiers)
+  String matureBloomLottieAsset(String seedType) {
+    if (seedType.contains('Rare')) {
+      return 'assets/animations/Flower growing Lottie JSON animation.json';
+    }
+    if (seedType.contains('Legendary')) {
+      return 'assets/animations/flower.json';
+    }
+    if (seedType.contains('Regular')) {
+      return 'assets/animations/Plants.json';
+    }
+    return 'assets/animations/Plants.json';
   }
 
   Map<String, dynamic> getSeedInfo(String seedType) {
@@ -118,6 +145,22 @@ class GardenLogic {
     int minutes = seconds ~/ 60;
     int remainingSeconds = seconds % 60;
     return '$minutes:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+
+  /// Countdown for long growth timers (farm overlay).
+  String formatGrowthRemaining(int seconds) {
+    if (seconds <= 0) return 'Ready';
+    if (seconds >= 86400) {
+      final int d = seconds ~/ 86400;
+      final int h = (seconds % 86400) ~/ 3600;
+      return '${d}d ${h}h';
+    }
+    if (seconds >= 3600) {
+      final int h = seconds ~/ 3600;
+      final int m = (seconds % 3600) ~/ 60;
+      return '${h}h ${m}m';
+    }
+    return formatTime(seconds);
   }
 
   /// Optional full-width art for the plot board (spring / summer assets).

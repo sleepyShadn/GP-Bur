@@ -3,14 +3,18 @@ import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:appforhumman/presentation/watering_flowers_screen.dart';
 import 'package:flutter/material.dart';
 
+import '../../domain/garden_care_logic.dart';
 import '../../domain/garden_logic.dart';
+import '../../data/garden_care_data.dart';
+import '../../services/garden_care_notification_coordinator.dart';
 import '../../data/garden_data.dart';
 import 'apple_picking_screen.dart';
-import 'garden_seed_farm_screen.dart';
+import 'garden_game_loading_screen.dart';
 import 'harvest_run_screen.dart';
 import 'home_screen.dart';
 import 'analysis_screen.dart';
 import 'profile_screen.dart';
+import 'widgets/main_top_app_bar.dart';
 
 class GardenPage extends StatefulWidget {
   const GardenPage({super.key});
@@ -22,6 +26,7 @@ class GardenPage extends StatefulWidget {
 class _GardenPageState extends State<GardenPage> {
   final GardenLogic _logic = GardenLogic();
   final GardenData _data = GardenData();
+  final GardenCareData _gardenCareData = GardenCareData();
 
   int _selectedIndex = 0;
   String gardenName = 'My Secret Garden';
@@ -31,6 +36,7 @@ class _GardenPageState extends State<GardenPage> {
 
   String _userId = '';
   int points = 0;
+  int _gardenVitality = GardenCareLogic.defaultVitality;
 
   @override
   void initState() {
@@ -55,14 +61,22 @@ class _GardenPageState extends State<GardenPage> {
 
   Future<void> _loadUserData() async {
     final data = await _data.loadUserData(_userId);
-    if (data != null && mounted) {
+    final int v = await _gardenCareData.loadAndReconcileVitality(_userId);
+    if (!mounted) return;
+    if (data != null) {
       setState(() {
         points = data['points'] ?? 0;
+        _gardenVitality = v;
       });
+    } else {
+      setState(() => _gardenVitality = v);
+    }
+    if (_userId.isNotEmpty) {
+      await GardenCareNotificationCoordinator().syncForUser(_userId);
     }
   }
 
-  Future<void> _openSeedFarmGame() async {
+  Future<void> _onSeedFarmCardTap() async {
     if (_userId.isEmpty) {
       _showSnackBar('Please log in first', Colors.red);
       return;
@@ -71,7 +85,7 @@ class _GardenPageState extends State<GardenPage> {
       context,
       MaterialPageRoute<void>(
         builder: (BuildContext context) =>
-            GardenSeedFarmScreen(initialSeason: currentSeason),
+            GardenGameLoadingScreen(initialSeason: currentSeason),
       ),
     );
     if (mounted) await _loadUserData();
@@ -120,10 +134,15 @@ class _GardenPageState extends State<GardenPage> {
   @override
   Widget build(BuildContext context) {
     final Color seasonColor = _logic.getSeasonIconColor(currentSeason);
-    final List<Color> sky = _logic.seasonalFarmGradient(currentSeason);
-    final String? heroImage = _logic.seasonalBackgroundAsset(currentSeason);
-    final String farmThumb =
-        heroImage ?? 'assets/images/watering/watering_bg_spring.png';
+    final List<Color> sky = const <Color>[
+      Color(0xFFEBD9DC),
+      Color(0xFFF2E5D9),
+      Color(0xFFE8F2E3),
+      Color(0xFFD1E2CF),
+    ];
+    const String farmThumb = 'assets/images/watering/watering_bg_spring.png';
+    final double vitalityFade =
+        (1.0 - (_gardenVitality.clamp(0, 100) / 100.0)) * 0.26;
 
     return Scaffold(
       extendBody: true,
@@ -141,16 +160,22 @@ class _GardenPageState extends State<GardenPage> {
               ),
             ),
           ),
-          if (heroImage != null)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Opacity(
-                  opacity: 0.28,
-                  child: Image.asset(heroImage, fit: BoxFit.cover),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      const Color(0xFF4A3728).withValues(alpha: vitalityFade * 0.55),
+                      const Color(0xFF2C2418).withValues(alpha: vitalityFade),
+                    ],
+                  ),
                 ),
               ),
             ),
-          _farmSilhouetteLayer(),
+          ),
           SafeArea(
             child: _userId.isEmpty
                 ? _buildNoUserWidget()
@@ -158,9 +183,12 @@ class _GardenPageState extends State<GardenPage> {
                     child: Column(
                       children: [
                         const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: MainTopAppBar(title: 'Garden', coins: points),
+                        ),
+                        const SizedBox(height: 12),
                         _buildHeader(seasonColor, farmThumb),
-                        const SizedBox(height: 14),
-                        _buildSeasonBanner(seasonColor),
                         Padding(
                           padding: const EdgeInsets.fromLTRB(18, 6, 18, 0),
                           child: Text(
@@ -174,8 +202,6 @@ class _GardenPageState extends State<GardenPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        _buildSeasonPicker(),
                         const SizedBox(height: 18),
                         _buildSeedFarmEntryCard(seasonColor),
                         const SizedBox(height: 22),
@@ -454,72 +480,6 @@ class _GardenPageState extends State<GardenPage> {
     );
   }
 
-  Widget _buildSeasonBanner(Color accent) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      height: 8,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        gradient: LinearGradient(
-          colors: [
-            accent.withValues(alpha: 0.35),
-            accent,
-            accent.withValues(alpha: 0.35),
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSeasonPicker() {
-    const seasons = ['Spring', 'Summer', 'Autumn', 'Winter'];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Row(
-        children: seasons.map((season) {
-          final bool isSelected = currentSeason == season;
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 5),
-            child: Material(
-              color: isSelected ? _logic.getSeasonIconColor(season) : Colors.white.withValues(alpha: 0.82),
-              borderRadius: BorderRadius.circular(22),
-              elevation: isSelected ? 4 : 0,
-              child: InkWell(
-                onTap: () => setState(() => currentSeason = season),
-                borderRadius: BorderRadius.circular(22),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _logic.getSeasonIconForPicker(season),
-                        color: isSelected ? Colors.white : _logic.getSeasonIconColor(season),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        season,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.black87,
-                          fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-
   Widget _buildSeedFarmEntryCard(Color accent) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -528,7 +488,7 @@ class _GardenPageState extends State<GardenPage> {
         shadowColor: const Color(0xFF2D5016).withValues(alpha: 0.35),
         borderRadius: BorderRadius.circular(26),
         child: InkWell(
-          onTap: _openSeedFarmGame,
+          onTap: _onSeedFarmCardTap,
           borderRadius: BorderRadius.circular(26),
           child: Ink(
             height: 152,
@@ -776,7 +736,7 @@ class _GardenPageState extends State<GardenPage> {
     required VoidCallback onTap,
   }) {
     const double cardW = 118;
-    const double cardH = 148;
+    const double cardH = 170;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -905,17 +865,17 @@ class _GardenPageState extends State<GardenPage> {
     return BottomAppBar(
       color: Colors.white,
       shape: const CircularNotchedRectangle(),
-      notchMargin: 8,
+      notchMargin: 6,
       child: SizedBox(
-        height: 60,
+        height: 58,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _navItem(Icons.local_florist_outlined, 'Garden', 0),
-            _navItem(Icons.storefront, 'Shop', 1),
-            const SizedBox(width: 40),
-            _navItem(Icons.bar_chart, 'Analytics', 3),
-            _navItem(Icons.person_outline, 'Profile', 4),
+            _navItem(Icons.storefront_outlined, 'Shop', 1),
+            const SizedBox(width: 36),
+            _navItem(Icons.bar_chart_rounded, 'Analytics', 3),
+            _navItem(Icons.person_outline_rounded, 'Profile', 4),
           ],
         ),
       ),
@@ -926,21 +886,30 @@ class _GardenPageState extends State<GardenPage> {
     final bool isSelected = _selectedIndex == index;
     return GestureDetector(
       onTap: () => _onItemTapped(index),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: isSelected ? const Color(0xff7f9461) : Colors.grey, size: isSelected ? 24 : 22),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
               color: isSelected ? const Color(0xff7f9461) : Colors.grey,
-              fontSize: isSelected ? 11 : 10,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              size: isSelected ? 22 : 20,
             ),
-            maxLines: 1,
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isSelected ? const Color(0xff7f9461) : Colors.grey,
+                fontSize: isSelected ? 10 : 9,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

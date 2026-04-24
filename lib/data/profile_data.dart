@@ -48,6 +48,7 @@ class ProfileData {
         'uid': uid,
         'name': userData['name'] ?? "",
         'email': userData['email'] ?? userEmail,
+        'profileImageBase64': userData['profileImageBase64'] as String?,
         'createdAt': createdAt,
         'birthDate': birthDate,
         'weight': weight,
@@ -104,5 +105,24 @@ class ProfileData {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('remember_me', false);
     await _auth.signOut();
+  }
+
+  /// Deletes user document then auth account (best effort).
+  Future<bool> deleteAccount() async {
+    try {
+      final User? user = _auth.currentUser;
+      if (user == null) return false;
+
+      final String uid = user.uid;
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('remember_me', false);
+
+      await _firestore.collection('users').doc(uid).delete();
+      await user.delete();
+      return true;
+    } catch (e) {
+      print("Error deleting account: $e");
+      return false;
+    }
   }
 }

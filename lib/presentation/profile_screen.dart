@@ -2,6 +2,9 @@
 import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:convert';
+import 'dart:typed_data';
 import '../../domain/profile_logic.dart';
 import '../../data/profile_data.dart';
 
@@ -9,6 +12,7 @@ import 'analysis_screen.dart';
 import 'garden_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
+import 'widgets/main_top_app_bar.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -17,7 +21,7 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStateMixin {
   final ProfileLogic _logic = ProfileLogic();
   final ProfileData _data = ProfileData();
 
@@ -34,11 +38,15 @@ class _ProfilePageState extends State<ProfilePage> {
   int userRank = 0;
   int totalUsers = 0;
   Timestamp? createdAt;
+  String? selectedProfileImageBase64;
+  List<String> _availableProfileImages = <String>[];
 
   Map<String, dynamic> seedsInventory = {};
 
   bool isLoading = true;
   bool isEditing = false;
+  bool _isUploadingProfileImage = false;
+  late final AnimationController _shimmerController;
 
   String? _nameError;
   String? _emailError;
@@ -58,7 +66,12 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
     _initializeControllers();
+    _loadAvailableProfileImages();
     _loadUserData();
   }
 
@@ -72,6 +85,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   void dispose() {
+    _shimmerController.dispose();
     _nameController.dispose();
     _emailController.dispose();
     _birthDateController.dispose();
@@ -89,6 +103,7 @@ class _ProfilePageState extends State<ProfilePage> {
           uid = userData['uid'] ?? "";
           userName = userData['name'] ?? "";
           userEmail = userData['email'] ?? "";
+          selectedProfileImageBase64 = userData['profileImageBase64'] as String?;
           createdAt = userData['createdAt'];
           birthDate = userData['birthDate'] ?? DateTime.now();
           weight = userData['weight'] ?? 0.0;
@@ -106,6 +121,26 @@ class _ProfilePageState extends State<ProfilePage> {
     } finally {
       setState(() => isLoading = false);
     }
+  }
+
+  Future<void> _loadAvailableProfileImages() async {
+    try {
+      final String rawManifest = await rootBundle.loadString('AssetManifest.json');
+      final Map<String, dynamic> manifestMap = json.decode(rawManifest) as Map<String, dynamic>;
+      final List<String> images = manifestMap.keys
+          .where((String path) =>
+              path.startsWith('assets/images/profile/') &&
+              (path.endsWith('.png') ||
+                  path.endsWith('.jpg') ||
+                  path.endsWith('.jpeg') ||
+                  path.endsWith('.webp')))
+          .toList()
+        ..sort();
+      if (!mounted) return;
+      setState(() {
+        _availableProfileImages = images;
+      });
+    } catch (_) {}
   }
 
   void _updateControllers() {
@@ -200,6 +235,124 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  Uint8List? _profileImageBytes() {
+    final String? raw = selectedProfileImageBase64;
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return base64Decode(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _onPickProfileImage(String assetPath) async {
+    final String currentUid = uid;
+    if (currentUid.isEmpty) {
+      _showErrorSnackBar('Please wait until profile data is loaded');
+      return;
+    }
+    setState(() => _isUploadingProfileImage = true);
+    String base64Image;
+    try {
+      final ByteData data = await rootBundle.load(assetPath);
+      base64Image = base64Encode(data.buffer.asUint8List());
+    } catch (_) {
+      if (mounted) setState(() => _isUploadingProfileImage = false);
+      _showErrorSnackBar('Failed to read selected image');
+      return;
+    }
+    final bool updated = await _data.updateUserData(currentUid, <String, dynamic>{
+      'profileImageBase64': base64Image,
+    });
+    if (!mounted) return;
+    if (updated) {
+      setState(() {
+        selectedProfileImageBase64 = base64Image;
+        _isUploadingProfileImage = false;
+      });
+      _showSuccessSnackBar('Profile image updated');
+    } else {
+      setState(() => _isUploadingProfileImage = false);
+      _showErrorSnackBar('Failed to update profile image');
+    }
+  }
+
+  void _showProfileImagePicker() {
+    if (_availableProfileImages.isEmpty) {
+      _showErrorSnackBar('No profile images found in assets/images/profile/');
+      return;
+    }
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text(
+                  'Choose Profile Image',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xff5f7744),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 260,
+                  child: GridView.builder(
+                    itemCount: _availableProfileImages.length,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      crossAxisSpacing: 10,
+                      mainAxisSpacing: 10,
+                    ),
+                    itemBuilder: (BuildContext context, int index) {
+                      final String assetPath = _availableProfileImages[index];
+                      return GestureDetector(
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await _onPickProfileImage(assetPath);
+                        },
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFC1CFA1),
+                              width: 1,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(13),
+                            child: Image.asset(
+                              assetPath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: const Color(0xFFEDE8DC),
+                                child: const Icon(Icons.person, color: Color(0xff7f9461)),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -265,29 +418,218 @@ class _ProfilePageState extends State<ProfilePage> {
   void _logout() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Are you sure you want to logout?', style: TextStyle(fontWeight: FontWeight.w500)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.98),
+                const Color(0xffeef5e3).withOpacity(0.95),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xff7f9461).withOpacity(0.22)),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xff7f9461).withOpacity(0.14),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              setState(() => isLoading = true);
-              await _data.logout();
-              if (mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const Login()),
-                );
-              }
-            },
-            child: const Text('Logout', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: const Color(0xff7f9461).withOpacity(0.14),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.logout_rounded, color: Color(0xff5f7744), size: 28),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Confirm Logout',
+                style: TextStyle(
+                  color: Color(0xff5f7744),
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You can sign in again anytime to continue your progress.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: const Color(0xff5f7744).withOpacity(0.8),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: const Color(0xff7f9461).withOpacity(0.35)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Color(0xff5f7744), fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        setState(() => isLoading = true);
+                        await _data.logout();
+                        if (mounted) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => const Login()),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xff7f9461),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text(
+                        'Logout',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmDeleteAccount() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withOpacity(0.98),
+                const Color(0xFFFFEDEE).withOpacity(0.96),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.red.withOpacity(0.28)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.red.withOpacity(0.12),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 31),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Delete Account?',
+                style: TextStyle(
+                  color: Color(0xff5f7744),
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This will permanently remove your profile data and cannot be undone.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Color(0xff6f6f6f),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.red.withOpacity(0.35)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text(
+                        'Keep Account',
+                        style: TextStyle(color: Color(0xff5f7744), fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        setState(() => isLoading = true);
+                        final bool deleted = await _data.deleteAccount();
+                        if (!mounted) return;
+                        if (deleted) {
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(builder: (_) => const Login()),
+                            (route) => false,
+                          );
+                        } else {
+                          setState(() => isLoading = false);
+                          _showErrorSnackBar(
+                            'Unable to delete account now. Please re-login and try again.',
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade500,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -348,17 +690,18 @@ class _ProfilePageState extends State<ProfilePage> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFE7CCCC), Color(0xFFEDE8DC), Color(0xFFC1CFA1)],
-            stops: [0.1, 0.5, 1.0],
+            colors: [
+              Color(0xFFEBD9DC),
+              Color(0xFFF2E5D9),
+              Color(0xFFE8F2E3),
+              Color(0xFFD1E2CF),
+            ],
+            stops: [0.0, 0.32, 0.7, 1.0],
           ),
         ),
         child: SafeArea(
           child: isLoading
-              ? const Center(
-            child: CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xff7f9461)),
-            ),
-          )
+              ? _buildLoadingShimmer()
               : SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
@@ -389,64 +732,127 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildAppBar() {
-    return Row(
-      children: [
-        GestureDetector(
-          onTap: _onLogoClick,
-          child: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFC1CFA1).withOpacity(0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.arrow_back, color: const Color(0xff7f9461), size: 20),
-                const SizedBox(width: 4),
-                Text(
-                  "Login",
-                  style: TextStyle(
-                    color: const Color(0xff7f9461),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
+  Widget _buildLoadingShimmer() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      child: Column(
+        children: [
+          _buildShimmerLine(
+            height: 64,
+            borderRadius: 18,
+            baseColor: const Color(0xffd9e7c8),
+            highlightColor: Colors.white.withValues(alpha: 0.85),
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            "Profile",
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: const Color(0xff7f9461),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          const SizedBox(height: 20),
+          _buildShimmerLine(
+            height: 140,
+            borderRadius: 20,
+            baseColor: const Color(0xffe6f1f8),
+            highlightColor: Colors.white.withValues(alpha: 0.84),
           ),
-        ),
-        if (!isEditing)
-          IconButton(
-            icon: const Icon(Icons.edit_outlined, color: Color(0xff7f9461)),
-            onPressed: _toggleEditMode,
-            tooltip: 'Edit Profile',
+          const SizedBox(height: 16),
+          _buildShimmerLine(
+            height: 170,
+            borderRadius: 20,
+            baseColor: const Color(0xfff3e7de),
+            highlightColor: Colors.white.withValues(alpha: 0.82),
           ),
-        if (isEditing) ...[
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.red),
-            onPressed: _cancelEdit,
-            tooltip: 'Cancel',
+          const SizedBox(height: 16),
+          _buildShimmerLine(
+            height: 210,
+            borderRadius: 20,
+            baseColor: const Color(0xffedf4e5),
+            highlightColor: Colors.white.withValues(alpha: 0.82),
           ),
-          IconButton(
-            icon: const Icon(Icons.save, color: Color(0xff7f9461)),
-            onPressed: _updateUserData,
-            tooltip: 'Save',
+          const SizedBox(height: 16),
+          _buildShimmerLine(
+            height: 170,
+            borderRadius: 20,
+            baseColor: const Color(0xffe9e3f4),
+            highlightColor: Colors.white.withValues(alpha: 0.82),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildShimmerLine({
+    required double height,
+    required double borderRadius,
+    required Color baseColor,
+    required Color highlightColor,
+  }) {
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(borderRadius),
+        color: baseColor,
+      ),
+      child: AnimatedBuilder(
+        animation: _shimmerController,
+        builder: (BuildContext context, Widget? child) {
+          final double t = _shimmerController.value;
+          final double beginX = -1.2 + (2.4 * t);
+          final double endX = beginX + 0.9;
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(borderRadius),
+              gradient: LinearGradient(
+                begin: Alignment(beginX, -0.3),
+                end: Alignment(endX, 0.3),
+                colors: <Color>[
+                  baseColor.withValues(alpha: 0.65),
+                  highlightColor,
+                  baseColor.withValues(alpha: 0.65),
+                ],
+                stops: const <double>[0.2, 0.5, 0.8],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return Column(
+      children: [
+        MainTopAppBar(title: 'Profile', coins: totalPoints),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                "Your profile",
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xff7f9461),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (!isEditing)
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, color: Color(0xff7f9461)),
+                onPressed: _toggleEditMode,
+                tooltip: 'Edit Profile',
+              ),
+            if (isEditing) ...[
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.red),
+                onPressed: _cancelEdit,
+                tooltip: 'Cancel',
+              ),
+              IconButton(
+                icon: const Icon(Icons.save, color: Color(0xff7f9461)),
+                onPressed: _updateUserData,
+                tooltip: 'Save',
+              ),
+            ],
+          ],
+        ),
       ],
     );
   }
@@ -500,18 +906,77 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 80,
-            height: 80,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFFC1CFA1),
-              border: Border.all(color: const Color(0xff7f9461), width: 2),
-            ),
-            child: const Icon(
-              Icons.person,
-              size: 50,
-              color: Color(0xff7f9461),
+          SizedBox(
+            width: 88,
+            height: 88,
+            child: Stack(
+              children: [
+                Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFFC1CFA1),
+                      border: Border.all(color: const Color(0xff7f9461), width: 2),
+                    ),
+                      child: ClipOval(
+                      child: _profileImageBytes() != null
+                          ? Image.memory(
+                              _profileImageBytes()!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                Icons.person,
+                                size: 50,
+                                color: Color(0xff7f9461),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.person,
+                              size: 50,
+                              color: Color(0xff7f9461),
+                            ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: GestureDetector(
+                    onTap: _isUploadingProfileImage ? null : _showProfileImagePicker,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: const Color(0xff7f9461),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      child: const Icon(Icons.edit, size: 14, color: Colors.white),
+                    ),
+                  ),
+                ),
+                if (_isUploadingProfileImage)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.28),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(width: 20),
@@ -614,6 +1079,18 @@ class _ProfilePageState extends State<ProfilePage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+                if (_isUploadingProfileImage)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 6),
+                    child: Text(
+                      'Uploading profile image...',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xff7f9461),
+                      ),
+                    ),
+                  ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -980,30 +1457,57 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _buildLogoutButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton.icon(
-        onPressed: _logout,
-        icon: const Icon(Icons.logout, color: Colors.white, size: 20),
-        label: const Text(
-          "Logout",
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          height: 50,
+          child: ElevatedButton.icon(
+            onPressed: _logout,
+            icon: const Icon(Icons.logout, color: Colors.white, size: 20),
+            label: const Text(
+              "Logout",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xff7f9461),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              elevation: 3,
+            ),
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.red.withOpacity(0.8),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(25),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _confirmDeleteAccount,
+            icon: const Icon(Icons.delete_forever_rounded, color: Colors.red, size: 20),
+            label: const Text(
+              "Delete Account",
+              style: TextStyle(
+                color: Colors.red,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: Colors.red.withOpacity(0.45)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
           ),
-          elevation: 3,
         ),
-      ),
+      ],
     );
   }
 
@@ -1071,15 +1575,15 @@ class _ProfilePageState extends State<ProfilePage> {
       shape: const CircularNotchedRectangle(),
       notchMargin: 6,
       child: SizedBox(
-        height: 56,
+        height: 58,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _navItem(Icons.local_florist_outlined, "Garden", 0),
-            _navItem(Icons.storefront, "Shop", 1),
+            _navItem(Icons.storefront_outlined, "Shop", 1),
             const SizedBox(width: 36),
-            _navItem(Icons.bar_chart, "Analytics", 3),
-            _navItem(Icons.person_outline, "Profile", 4),
+            _navItem(Icons.bar_chart_rounded, "Analytics", 3),
+            _navItem(Icons.person_outline_rounded, "Profile", 4),
           ],
         ),
       ),
@@ -1094,6 +1598,7 @@ class _ProfilePageState extends State<ProfilePage> {
         padding: const EdgeInsets.symmetric(horizontal: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Icon(
               icon,
@@ -1103,13 +1608,14 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 2),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
               style: TextStyle(
                 color: isSelected ? const Color(0xff7f9461) : Colors.grey,
                 fontSize: isSelected ? 10 : 9,
-                fontWeight: FontWeight.bold,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),

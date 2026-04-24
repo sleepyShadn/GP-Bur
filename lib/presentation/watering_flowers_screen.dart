@@ -55,6 +55,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
   bool _isGameActive = false;
   bool _isPaused = false;
   bool _showIntroCard = true;
+  bool _isExiting = false;
 
   Timer? _tickTimer;
   Timer? _tapFeedbackTimer;
@@ -1020,6 +1021,26 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     );
   }
 
+  Future<void> _confirmExitGame() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    _tickTimer?.cancel();
+    _tapFeedbackTimer?.cancel();
+    _waterSprayTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _isGameActive = false;
+        _isPaused = false;
+        _focusedPlantIndex = null;
+      });
+    }
+    await _gardenAudio.stopGardenIntroRoundStartCue();
+    await _gardenAudio.stopGardenCareBgm();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1304,18 +1325,12 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
       onTap: () {
         if (_isGameActive) {
           unawaited(_gardenAudio.playButtonTap());
-          _logic.showExitDialog(context, () {
-            _tickTimer?.cancel();
-            setState(() => _isGameActive = false);
-            unawaited(_gardenAudio.stopGardenIntroRoundStartCue());
-            unawaited(_gardenAudio.stopGardenCareBgm());
-            unawaited(_gardenAudio.playGameOver());
-            Navigator.pop(context);
-          });
+          _logic.showExitDialog(
+            context,
+            () => unawaited(_confirmExitGame()),
+          );
         } else {
-          unawaited(_gardenAudio.stopGardenIntroRoundStartCue());
-          unawaited(_gardenAudio.stopGardenCareBgm());
-          Navigator.pop(context);
+          unawaited(_confirmExitGame());
         }
       },
       child: Container(

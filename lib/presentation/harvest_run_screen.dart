@@ -80,6 +80,10 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   OverlayEntry? _flightEntry;
   OverlayEntry? _scoreFloatEntry;
   bool _deliverBusy = false;
+  bool _isExiting = false;
+  bool _audioReady = false;
+  bool _audioShutdownRequested = false;
+  late final Future<void> _audioInitFuture;
 
   /// Tractor passes along the lane below the patch grid.
   late final AnimationController _tractorPassCtrl;
@@ -91,8 +95,16 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
       vsync: this,
       duration: const Duration(seconds: 18),
     );
-    unawaited(_audio.init());
+    _audioInitFuture = _initAudio();
     unawaited(_loadMeta());
+  }
+
+  Future<void> _initAudio() async {
+    await _audio.init();
+    if (mounted) {
+      _audioReady = true;
+    }
+    await _audio.startGardenIntroRoundStartLoop();
   }
 
   Future<void> _loadMeta() async {
@@ -108,22 +120,22 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   @override
   void dispose() {
     _tractorPassCtrl.dispose();
-    _scoreFloatEntry?.remove();
+    _removeOverlayEntry(_scoreFloatEntry);
     _scoreFloatEntry = null;
-    _flightEntry?.remove();
+    _removeOverlayEntry(_flightEntry);
     _flightEntry = null;
     _tickTimer?.cancel();
     _advanceBannerTimer?.cancel();
-    final GardenAudioService audio = _audio;
-    unawaited(() async {
-      await audio.haltAllPlayback();
-      await audio.dispose();
-    }());
+    _requestAudioShutdown();
     super.dispose();
   }
 
-  /// خروج مؤكد من جولة نشطة: إيقاف الصوت، game_over، حفظ نقاط الجولة الحالية إن وُجدت، ثم الرجوع.
+  /// خروج مؤكد من جولة نشطة: إيقاف الصوت، حفظ نقاط الجولة الحالية إن وُجدت، ثم الرجوع.
   Future<void> _confirmHarvestExit() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    await _audioInitFuture;
+    if (!mounted) return;
     final HarvestLevelConfig? c = _config;
     _tickTimer?.cancel();
     _advanceBannerTimer?.cancel();
@@ -137,13 +149,17 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     final int levelId = c?.id ?? 1;
     final String title =
         c != null ? 'H${c.id} (exit): ${c.title}' : 'Harvest Run (exit)';
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
 
-    await _audio.haltAllPlayback();
-    await _audio.playExitGameOver();
-    await Future<void>.delayed(const Duration(milliseconds: 140));
+    await _showClosingOverlay();
+    _requestAudioShutdown();
+
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
 
     if (partial > 0 && _userId != null) {
-      await _data.saveScoreToFirebase(
+      unawaited(_data.saveScoreToFirebase(
         _userId!,
         partial,
         picks,
@@ -152,27 +168,103 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         title,
         timeSnap,
         levelId: levelId,
-      );
+      ));
     }
+  }
 
-    if (mounted) {
-      Navigator.of(context).pop();
+  Future<void> _showClosingOverlay() async {
+    if (!mounted) return;
+    final BuildContext dialogContext = context;
+    showDialog<void>(
+      context: dialogContext,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) {
+        return PopScope(
+          canPop: false,
+          child: Dialog(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: <Color>[
+                    const Color(0xFF1E2A3A).withValues(alpha: 0.92),
+                    const Color(0xFF26364A).withValues(alpha: 0.88),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.24),
+                  width: 1.1,
+                ),
+              ),
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      color: Color(0xFFFFD166),
+                    ),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'Closing game safely...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFF8FBFF),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Saving progress and stopping audio',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Color(0xFFDCE6F2),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    _requestAudioShutdown();
+    await Future<void>.delayed(const Duration(milliseconds: 220));
+    if (dialogContext.mounted) {
+      Navigator.of(dialogContext, rootNavigator: true).pop();
     }
+  }
+
+  void _requestAudioShutdown() {
+    if (_audioShutdownRequested) return;
+    _audioShutdownRequested = true;
+    unawaited(_audio.dispose());
   }
 
   Future<void> _onIntroStartGamePressed() async {
     if (_introStartBusy) return;
     setState(() => _introStartBusy = true);
-    try {
-      await _audio.playHarvestGameStartThenBgm();
-    } catch (_) {}
+    await _audioInitFuture;
+    await _audio.stopGardenIntroRoundStartCue();
+    await _audio.playHarvestGameStartThenBgm();
     if (!mounted) return;
     setState(() {
       _introStartBusy = false;
       _showIntro = false;
       _sessionPoints = 0;
     });
-    _startLevel(HarvestRunData.levels.first);
+    _startLevel(HarvestRunData.levels.first, startRoundBgm: false);
   }
 
   void _showAdvanceBanner(String text,
@@ -204,7 +296,8 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   }
 
   void _insertHarvestFlight(Offset start, Offset end, String emoji) {
-    _flightEntry?.remove();
+    _removeOverlayEntry(_flightEntry);
+    _flightEntry = null;
     final OverlayState? overlay = Overlay.maybeOf(context);
     if (overlay == null) {
       return;
@@ -216,7 +309,9 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         end: end,
         emoji: emoji,
         onDone: () {
-          entry.remove();
+          if (entry.mounted) {
+            entry.remove();
+          }
           if (_flightEntry == entry) {
             _flightEntry = null;
           }
@@ -304,7 +399,11 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     _refreshPatchKeys();
   }
 
-  void _startLevel(HarvestLevelConfig c, {bool playAdvanceCue = false}) {
+  void _startLevel(
+    HarvestLevelConfig c, {
+    bool playAdvanceCue = false,
+    bool startRoundBgm = true,
+  }) {
     _tickTimer?.cancel();
     _regenerateField(c);
     _basketKeys = List<GlobalKey>.generate(
@@ -333,7 +432,9 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         hold: const Duration(milliseconds: 1500),
       );
     }
-    unawaited(_audio.ensureHarvestRunBgm());
+    if (startRoundBgm) {
+      unawaited(_audio.ensureHarvestRunBgm());
+    }
     if (!_tractorPassCtrl.isAnimating) {
       _tractorPassCtrl.repeat();
     }
@@ -738,7 +839,8 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   }
 
   void _showScoreFloat(int delta, {required bool positive}) {
-    _scoreFloatEntry?.remove();
+    _removeOverlayEntry(_scoreFloatEntry);
+    _scoreFloatEntry = null;
     final OverlayState? overlay = Overlay.maybeOf(context);
     if (overlay == null) {
       return;
@@ -765,7 +867,9 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         positive: positive,
         target: target,
         onDone: () {
-          entry.remove();
+          if (entry.mounted) {
+            entry.remove();
+          }
           if (_scoreFloatEntry == entry) {
             _scoreFloatEntry = null;
           }
@@ -774,6 +878,12 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     );
     _scoreFloatEntry = entry;
     overlay.insert(entry);
+  }
+
+  void _removeOverlayEntry(OverlayEntry? entry) {
+    if (entry != null && entry.mounted) {
+      entry.remove();
+    }
   }
 
   void _onPatchTap(HarvestCrop crop) {
@@ -821,7 +931,7 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     ms.showSnackBar(
       SnackBar(
         content: Text(msg, textAlign: TextAlign.center),
-        behavior: SnackBarBehavior.floating,
+        behavior: SnackBarBehavior.fixed,
         duration: const Duration(milliseconds: 1600),
       ),
     );
@@ -841,10 +951,12 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_gameActive,
+      canPop: false,
       onPopInvokedWithResult: (bool didPop, Object? result) async {
-        if (didPop || !_gameActive) return;
-        await _audio.playButtonTap();
+        if (didPop || _isExiting) return;
+        if (_audioReady) {
+          await _audio.playButtonTap();
+        }
         if (!context.mounted) return;
         await _logic.showExitDialog(context, _confirmHarvestExit);
       },
@@ -1264,16 +1376,12 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
   Widget _glassExit(BuildContext context) {
     return GestureDetector(
       onTap: () async {
-        if (_gameActive) {
+        if (_isExiting) return;
+        if (_audioReady) {
           await _audio.playButtonTap();
-          if (!context.mounted) return;
-          await _logic.showExitDialog(context, _confirmHarvestExit);
-        } else {
-          await _audio.haltAllPlayback();
-          if (context.mounted) {
-            Navigator.of(context).pop();
-          }
         }
+        if (!context.mounted) return;
+        await _logic.showExitDialog(context, _confirmHarvestExit);
       },
       child: Container(
         padding: const EdgeInsets.all(11),
@@ -1760,19 +1868,20 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
                       final double u = (sin(2 * pi * t - pi / 2) + 1) / 2;
                       final double x = -tractorW + u * (laneW + 2 * tractorW);
                       final bool faceRight = cos(2 * pi * t) >= 0;
-                      return Positioned(
-                        left: x,
-                        top: (tractorLaneH - tractorH) * 0.5,
-                        width: tractorW,
-                        height: tractorH,
-                        child: Transform.scale(
-                          scaleX: faceRight ? 1 : -1,
-                          alignment: Alignment.center,
-                          child: Lottie.asset(
-                            'assets/animations/tractor.json',
-                            fit: BoxFit.contain,
-                            repeat: true,
-                            animate: !_paused,
+                      return Transform.translate(
+                        offset: Offset(x, (tractorLaneH - tractorH) * 0.5),
+                        child: SizedBox(
+                          width: tractorW,
+                          height: tractorH,
+                          child: Transform.scale(
+                            scaleX: faceRight ? 1 : -1,
+                            alignment: Alignment.center,
+                            child: Lottie.asset(
+                              'assets/animations/tractor.json',
+                              fit: BoxFit.contain,
+                              repeat: true,
+                              animate: !_paused,
+                            ),
                           ),
                         ),
                       );

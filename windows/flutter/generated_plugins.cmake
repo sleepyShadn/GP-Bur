@@ -3,9 +3,11 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
   cloud_firestore
   firebase_auth
   firebase_core
+  flutter_timezone
   printing
   share_plus
   speech_to_text_windows

@@ -4,8 +4,8 @@ import 'mood_input_verdict.dart';
 class FeelingInputValidation {
   FeelingInputValidation._();
 
-  static const int minCharsInitial = 15;
-  static const int minWordsInitial = 3;
+  static const int minCharsInitial = 3;
+  static const int minWordsInitial = 1;
   static const int maxChars = 4000;
 
   /// Arabic + Arabic Supplement + Arabic Extended-A + Presentation forms.
@@ -33,7 +33,7 @@ class FeelingInputValidation {
       return MoodInputVerdict.textTooShort;
     }
     final int latinWordMatches = RegExp(r'[A-Za-z]{2,}').allMatches(t).length;
-    if (latinWordMatches < 2) {
+    if (latinWordMatches < 1) {
       return MoodInputVerdict.englishOnlyViolation;
     }
     if (t.length < minCharsInitial) {
