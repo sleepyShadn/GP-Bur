@@ -1,16 +1,9 @@
-// ============================================
-// ملف: test/home_test.dart
-// ============================================
-// اختبارات الوحدة لصفحة الرئيسية
-// ============================================
+
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:appforhumman/domain/home_logic.dart';
 
 void main() {
-  // ============================================
-  // اختبارات HomeLogic - getWelcomeMessage
-  // ============================================
   group('اختبارات HomeLogic - رسالة الترحيب', () {
     late HomeLogic logic;
 
@@ -23,24 +16,24 @@ void main() {
       expect(result, "Welcome back! How are you feeling today?");
     });
 
-    test('u.2: يجب أن تعرض رسالة مناسبة لـ anxiety', () {
-      String result = logic.getWelcomeMessage('anxiety');
-      expect(result, "Let's work on finding your calm today");
+    test('u.2: يجب أن تعرض رسالة مناسبة لـ sleeping disorder', () {
+      String result = logic.getWelcomeMessage('sleeping disorder');
+      expect(result, 'Rest is part of healing—take it one night at a time');
     });
 
-    test('u.3: يجب أن تعرض رسالة مناسبة لـ depression', () {
-      String result = logic.getWelcomeMessage('depression');
-      expect(result, "Small steps lead to big changes");
+    test('u.3: يجب أن تعرض رسالة مناسبة لـ social disorder', () {
+      String result = logic.getWelcomeMessage('social disorder');
+      expect(result, 'Small social steps still count as wins');
     });
 
-    test('u.4: يجب أن تعرض رسالة مناسبة لـ anorexia', () {
-      String result = logic.getWelcomeMessage('anorexia');
-      expect(result, "Nurture your body with kindness");
+    test('u.4: يجب أن تعرض رسالة مناسبة لـ obsessive habits', () {
+      String result = logic.getWelcomeMessage('obsessive habits');
+      expect(result, 'Gentle structure beats harsh pressure');
     });
 
-    test('u.5: يجب أن تعرض رسالة مناسبة لـ bipolar', () {
-      String result = logic.getWelcomeMessage('bipolar');
-      expect(result, "Balance is key - you've got this");
+    test('u.5: يجب أن تعرض رسالة مناسبة لـ cognitive disorder', () {
+      String result = logic.getWelcomeMessage('cognitive disorder');
+      expect(result, 'Clarity comes in layers—pace yourself');
     });
 
     test('u.6: يجب أن تعرض رسالة مناسبة لـ ADHD', () {
@@ -48,25 +41,27 @@ void main() {
       expect(result, "Focus on one thing at a time");
     });
 
-    test('u.7: يجب أن تعرض رسالة مناسبة لـ antisocial personality', () {
-      String result = logic.getWelcomeMessage('antisocial personality');
-      expect(result, "Every connection starts with a smile");
+    test('u.7: يجب أن تعرض رسالة مناسبة لـ mood swings', () {
+      String result = logic.getWelcomeMessage('mood swings');
+      expect(result, 'Feelings can shift—ride the waves with care');
     });
 
-    test('u.8: يجب أن تعرض رسالة مناسبة لـ bulimia', () {
-      String result = logic.getWelcomeMessage('bulimia');
-      expect(result, "Be gentle with yourself today");
+    test('u.8: يجب أن تعرض رسالة مناسبة لـ mild anger issues', () {
+      String result = logic.getWelcomeMessage('mild anger issues');
+      expect(result, 'Pause and breathe—progress is in how you respond');
     });
 
     test('u.9: يجب أن تعرض رسالة افتراضية للتصنيفات غير المعروفة', () {
       String result = logic.getWelcomeMessage('unknown');
       expect(result, "Welcome back!");
     });
+
+    test('u.9.b: يجب أن تتعامل مع المسافات واختلاف حالة الأحرف', () {
+      String result = logic.getWelcomeMessage('  ADHD  ');
+      expect(result, 'Focus on one thing at a time');
+    });
   });
 
-  // ============================================
-  // اختبارات HomeLogic - getGoalStatusMessage
-  // ============================================
   group('اختبارات HomeLogic - حالة الهدف', () {
     late HomeLogic logic;
 
@@ -82,7 +77,8 @@ void main() {
     test('u.11: يجب أن تعرض عدد الأيام المتبقية عندما يكون الهدف نشطاً', () {
       DateTime futureDate = DateTime.now().add(const Duration(days: 5));
       String result = logic.getGoalStatusMessage(false, futureDate);
-      expect(result, "5 days remaining in goal period");
+      int expectedDays = futureDate.difference(DateTime.now()).inDays;
+      expect(result, "$expectedDays days remaining in goal period");
     });
 
     test('u.12: يجب أن تعرض رسالة انتهاء الفترة عندما تنتهي المدة', () {
@@ -97,9 +93,6 @@ void main() {
     });
   });
 
-  // ============================================
-  // اختبارات HomeLogic - isActivityCompletedToday
-  // ============================================
   group('اختبارات HomeLogic - حالة إكمال النشاط', () {
     late HomeLogic logic;
 

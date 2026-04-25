@@ -9,6 +9,16 @@ import 'package:path_provider/path_provider.dart';
 class AnalysisData {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const Map<String, String> _classificationFriendlyLabels =
+      <String, String>{
+    'sleeping disorder': 'Sleep Balance',
+    'social disorder': 'Social Comfort',
+    'obsessive habits': 'Routine Flexibility',
+    'cognitive disorder': 'Mental Clarity',
+    'adhd': 'Attention Stability',
+    'mood swings': 'Mood Stability',
+    'mild anger issues': 'Emotional Calm',
+  };
 
   Future<Map<String, dynamic>?> getCurrentUser() async {
     User? user = _auth.currentUser;
@@ -117,7 +127,7 @@ class AnalysisData {
                   children: [
                     pw.SizedBox(height: 100),
                     pw.Text(
-                      'Mental Health Analytics Report',
+                      'Emotional Wellbeing Analytics Report',
                       style: pw.TextStyle(
                         fontSize: 32,
                         fontWeight: pw.FontWeight.bold,
@@ -227,7 +237,7 @@ class AnalysisData {
           build: (pw.Context context) {
             List<pw.Widget> items = [];
             items.add(pw.Text(
-              'Mental Health Classification Distribution',
+              'Emotional Pattern Distribution',
               style: pw.TextStyle(
                 fontSize: 20,
                 fontWeight: pw.FontWeight.bold,
@@ -237,12 +247,15 @@ class AnalysisData {
             items.add(pw.SizedBox(height: 20));
             items.add(
               pw.Table.fromTextArray(
-                headers: ['Classification', 'Count', 'Percentage'],
+                headers: ['Emotional Pattern', 'Count', 'Percentage'],
                 data: classifications.map((classification) {
                   int count = classificationCounts[classification] ?? 0;
                   double percentage = totalAnalyses > 0 ? (count / totalAnalyses * 100) : 0;
-                  String displayName = classification.split(' ').map((word) =>
-                  word[0].toUpperCase() + word.substring(1)).join(' ');
+                  String displayName = _classificationFriendlyLabels[classification] ??
+                      classification
+                          .split(' ')
+                          .map((word) => word[0].toUpperCase() + word.substring(1))
+                          .join(' ');
                   return [displayName, count.toString(), '${percentage.toStringAsFixed(1)}%'];
                 }).toList(),
                 headerStyle: pw.TextStyle(
@@ -405,6 +418,8 @@ class AnalysisData {
     Timestamp? timestamp = analysis['timestamp'];
     String date = timestamp != null ? _formatDateForPDF(timestamp.toDate()) : 'Unknown date';
     String classification = analysis['classification'] ?? 'Unknown';
+    String displayClassification =
+        _classificationFriendlyLabels[classification] ?? classification;
     String goal = analysis['goal'] ?? 'No goal';
     String text = analysis['text'] ?? '';
     List<dynamic> activities = analysis['activities'] ?? [];
@@ -424,7 +439,7 @@ class AnalysisData {
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text('Date: $date', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-              pw.Text(classification.toUpperCase(), style: pw.TextStyle(color: PdfColors.green700, fontWeight: pw.FontWeight.bold)),
+              pw.Text(displayClassification, style: pw.TextStyle(color: PdfColors.green700, fontWeight: pw.FontWeight.bold)),
             ],
           ),
           pw.SizedBox(height: 8),

@@ -1,17 +1,9 @@
-// ============================================
-// ملف: test/login_test.dart
-// ============================================
-// اختبارات الوحدة لصفحة تسجيل الدخول
-// ============================================
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:appforhumman/domain/login_logic.dart';
 
 void main() {
-  // ============================================
-  // اختبارات LoginLogic
-  // ============================================
   group('اختبارات LoginLogic - التحقق من صحة البريد الإلكتروني', () {
     late LoginLogic logic;
 
@@ -86,6 +78,20 @@ void main() {
     // اختبار 11: التحقق من اللون GreenLight
     test('u.11: يجب أن يكون اللون GreenLight صحيح', () {
       expect(logic.colorGreenLight, const Color(0xFFC1CFA1));
+    });
+
+    // اختبار 12: بريد إلكتروني بصيغة subdomain
+    test('u.12: يجب أن يقبل البريد الإلكتروني بصيغة subdomain', () {
+      String email = 'user@mail.example.com';
+      bool result = logic.isValidEmail(email);
+      expect(result, true);
+    });
+
+    // اختبار 13: بريد يحتوي على مسافة في البداية (غير trim داخل المنطق)
+    test('u.13: يجب أن يرفض البريد مع مسافة بادئة', () {
+      String email = ' test@gmail.com';
+      bool result = logic.isValidEmail(email);
+      expect(result, false);
     });
   });
 }

@@ -26,13 +26,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
 
   static const Map<String, String> _chartAxisShortLabels =
       <String, String>{
-    'sleeping disorder': 'Sleeping',
+    'sleeping disorder': 'Sleep',
     'social disorder': 'Social',
-    'obsessive habits': 'Obsessive',
-    'cognitive disorder': 'Cognitive',
-    'adhd': 'ADHD',
+    'obsessive habits': 'Routine',
+    'cognitive disorder': 'Focus',
+    'adhd': 'Attention',
     'mood swings': 'Mood',
-    'mild anger issues': 'Anger',
+    'mild anger issues': 'Calm',
+  };
+
+  static const Map<String, String> _classificationFriendlyLabels =
+      <String, String>{
+    'sleeping disorder': 'Sleep Balance',
+    'social disorder': 'Social Comfort',
+    'obsessive habits': 'Routine Flexibility',
+    'cognitive disorder': 'Mental Clarity',
+    'adhd': 'Attention Stability',
+    'mood swings': 'Mood Stability',
+    'mild anger issues': 'Emotional Calm',
   };
 
   final List<String> _classifications = List<String>.from(
@@ -339,7 +350,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          "Mental Health Analysis Distribution",
+                          "Emotional Trends Distribution",
                           style: TextStyle(
                             color: const Color(0xff7f9461),
                             fontWeight: FontWeight.bold,
@@ -352,7 +363,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          "Total: $_totalAnalyses analyses",
+                          "Total: $_totalAnalyses check-ins",
                           style: TextStyle(
                             color: const Color(0xff7f9461),
                             fontSize: 12,
@@ -494,7 +505,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Classification Details",
+                        "Emotional Pattern Details",
                         style: TextStyle(
                           color: const Color(0xff7f9461),
                           fontWeight: FontWeight.bold,
@@ -508,8 +519,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
                         String classification = _classifications[index];
                         int count = _classificationCounts[classification] ?? 0;
                         double percentage = _totalAnalyses > 0 ? (count / _totalAnalyses * 100) : 0;
-                        String displayName = classification.split(' ').map((word) =>
-                        word[0].toUpperCase() + word.substring(1)).join(' ');
+                        String displayName = _classificationFriendlyLabels[classification] ??
+                            classification
+                                .split(' ')
+                                .map((word) => word[0].toUpperCase() + word.substring(1))
+                                .join(' ');
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 6),
                           child: Row(

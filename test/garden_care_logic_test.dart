@@ -48,5 +48,51 @@ void main() {
     test('clamps to 100', () {
       expect(GardenCareLogic.boostedVitality(95, 16), 100);
     });
+
+    test('keeps value within lower bound', () {
+      expect(GardenCareLogic.boostedVitality(0, -50), 0);
+    });
+  });
+
+  group('GardenCareLogic.tierFromVitality', () {
+    test('returns thriving for high vitality', () {
+      expect(
+        GardenCareLogic.tierFromVitality(80),
+        GardenVitalityTier.thriving,
+      );
+    });
+
+    test('returns steady for middle vitality', () {
+      expect(
+        GardenCareLogic.tierFromVitality(55),
+        GardenVitalityTier.steady,
+      );
+    });
+
+    test('returns fading for low vitality', () {
+      expect(
+        GardenCareLogic.tierFromVitality(20),
+        GardenVitalityTier.fading,
+      );
+    });
+  });
+
+  group('GardenCareLogic.growthVisualProgress', () {
+    test('keeps progress unchanged at full vitality', () {
+      final double out = GardenCareLogic.growthVisualProgress(
+        timeProgress01: 0.7,
+        vitality: 100,
+      );
+      expect(out, closeTo(0.7, 1e-9));
+    });
+
+    test('reduces visible progress when vitality is low', () {
+      final double out = GardenCareLogic.growthVisualProgress(
+        timeProgress01: 0.7,
+        vitality: 20,
+      );
+      expect(out, lessThan(0.7));
+      expect(out, inInclusiveRange(0.0, 1.0));
+    });
   });
 }

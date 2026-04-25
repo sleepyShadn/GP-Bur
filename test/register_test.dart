@@ -1,16 +1,10 @@
-// ============================================
-// ملف: test/register_test.dart
-// ============================================
-// اختبارات الوحدة لصفحة التسجيل
-// ============================================
 
+
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:appforhumman/domain/register_logic.dart';
 
 void main() {
-  // ============================================
-  // اختبارات RegisterLogic - validateName
-  // ============================================
   group('اختبارات RegisterLogic - التحقق من الاسم', () {
     late RegisterLogic logic;
 
@@ -73,11 +67,15 @@ void main() {
       String? result = logic.validateName(name);
       expect(result, null);
     });
+
+    // اختبار 8.b: اسم صحيح مع مسافات حوله (trim)
+    test('u.8.b: يجب أن يقبل الاسم بعد trim', () {
+      String name = '  Ahmed Mohamed  ';
+      String? result = logic.validateName(name);
+      expect(result, null);
+    });
   });
 
-  // ============================================
-  // اختبارات RegisterLogic - validateWeight
-  // ============================================
   group('اختبارات RegisterLogic - التحقق من الوزن', () {
     late RegisterLogic logic;
 
@@ -142,9 +140,6 @@ void main() {
     });
   });
 
-  // ============================================
-  // اختبارات RegisterLogic - validateHeight
-  // ============================================
   group('اختبارات RegisterLogic - التحقق من الطول', () {
     late RegisterLogic logic;
 
@@ -206,6 +201,18 @@ void main() {
       String height = 'abc';
       String? result = logic.validateHeight(height);
       expect(result, 'Please enter a valid number');
+    });
+  });
+
+  group('اختبارات RegisterLogic - الثوابت اللونية', () {
+    late RegisterLogic logic;
+
+    setUp(() {
+      logic = RegisterLogic();
+    });
+
+    test('u.25: لون placeholder يجب أن يطابق المنطق الحالي', () {
+      expect(logic.colorPlaceholder.value, const Color(0xFF362427).value);
     });
   });
 }
