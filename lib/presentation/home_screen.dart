@@ -5,7 +5,9 @@ import 'dart:typed_data';
 
 import 'package:appforhumman/presentation/shop_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../domain/assessment_classifications.dart';
 import '../../domain/feeling_input_validation.dart';
@@ -38,7 +40,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   late stt.SpeechToText _speech;
   bool _isListening = false;
+  bool _speechInitializing = false;
+  /// Last listen params for [listen] (locale optional).
+  String? _voiceLocaleId;
+  bool _voiceBusyRecoveryInFlight = false;
+  DateTime? _lastVoiceBusyRecoveryAt;
   final TextEditingController _textController = TextEditingController();
+
+  /// Voice-input duration bar (Messenger-style).
+  Timer? _voiceElapsedTicker;
+  DateTime? _voiceElapsedOrigin;
+  Duration _voiceElapsed = Duration.zero;
+
+  /// Mic input level 0..1 (from platform RMS / dB). Shown while listening.
+  double _voiceSoundNorm = 0;
+  DateTime? _voiceSoundLevelThrottle;
 
   int _selectedIndex = 2;
 
@@ -50,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int? _goalDurationDays;
   DateTime? _goalExpiryDate;
   bool _isGoalCompleted = false;
+  bool _professionalEscalation = false;
 
   final List<String> _classifications = List<String>.from(
     kAssessmentClassifications,
@@ -60,7 +77,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   String? _profileImageBase64;
   String _currentAnalysisId = '';
   int _todayAnalysisCount = 0;
-  List<String> _recentDiagnoses = [];
 
   int _gardenVitality = GardenCareLogic.defaultVitality;
   bool _gardenHasPlants = false;
@@ -87,6 +103,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     LocalNotificationInboxStore.instance.removeListener(_onLocalInboxChanged);
+    if (_speech.isListening) {
+      unawaited(_speech.stop());
+    }
+    _speech.errorListener = null;
+    _speech.statusListener = null;
+    _stopVoiceElapsedTicker();
     _data.cancelSubscription();
     _textController.dispose();
     super.dispose();
@@ -126,7 +148,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
       _loadUserPoints();
       _loadProfileImage();
-      _loadRecentDiagnoses();
       _checkTodayAnalysisCount();
       _listenToLatestAnalysis();
       await _loadGardenCare();
@@ -181,6 +202,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           _goalExpiryDate = data['goalExpiryDate'];
           _isGoalCompleted = data['isGoalCompleted'] ?? false;
           _currentActivities = data['activities'] ?? [];
+          _professionalEscalation = data['professionalEscalation'] == true ||
+              (data['classification']?.toString().toLowerCase().trim() ==
+                  kProfessionalSupportReferralClassification);
         });
       }
     });
@@ -216,45 +240,461 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadRecentDiagnoses() async {
-    final diagnoses = await _data.loadRecentDiagnoses(_userId);
-    if (mounted) setState(() => _recentDiagnoses = diagnoses);
-  }
-
   Future<void> _checkTodayAnalysisCount() async {
     final count = await _data.checkTodayAnalysisCount(_userId);
     if (mounted) setState(() => _todayAnalysisCount = count);
   }
 
-  void _listen() async {
-    if (!_isListening) {
-      bool available = await _speech.initialize();
+  void _showVoiceSnack(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red.shade700 : const Color(0xff7f9461),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        duration: Duration(milliseconds: isError ? 4200 : 2600),
+      ),
+    );
+  }
 
-      if (available) {
-        setState(() => _isListening = true);
+  String _mapSpeechErrorToMessage(String code) {
+    switch (code) {
+      case 'error_permission':
+        return 'Microphone or speech permission was denied. Enable it in Settings, then try Voice Input again.';
+      case 'error_no_match':
+        return 'No speech was recognized. Speak clearly in English, or try again closer to the mic.';
+      case 'error_speech_timeout':
+        return 'Listening timed out before speech was detected. Tap Voice Input and try again.';
+      case 'error_network':
+      case 'error_network_timeout':
+        return 'Speech recognition needs a network connection. Check your connection and try again.';
+      case 'error_busy':
+        return 'Speech service is busy. Wait a few seconds, then tap Voice Input again.';
+      case 'error_language_not_supported':
+      case 'error_language_unavailable':
+        return 'English speech recognition is not available on this device.';
+      default:
+        return 'Voice input issue: $code. Please try again.';
+    }
+  }
 
-        var locales = await _speech.locales();
+  /// [SpeechToText] is a singleton; [initialize] skips listener setup after the
+  /// first success — re-bind so this [State] always receives status/results.
+  void _attachSpeechCallbacks() {
+    _speech.errorListener = _onSpeechEngineError;
+    _speech.statusListener = _onSpeechEngineStatus;
+  }
 
-        var englishLocale = locales.firstWhere(
-              (locale) => locale.localeId.contains('en'),
-          orElse: () => locales.first,
-        );
+  void _onSpeechEngineError(SpeechRecognitionError err) {
+    if (!mounted) return;
+    _stopVoiceElapsedTicker();
+    setState(() => _isListening = false);
+    if (err.errorMsg == 'error_busy') {
+      unawaited(_recoverFromSpeechBusyLight());
+      return;
+    }
+    _showVoiceSnack(_mapSpeechErrorToMessage(err.errorMsg), isError: true);
+  }
 
-        _speech.listen(
-          onResult: (val) {
-            setState(() {
-              _textController.text = val.recognizedWords;
-            });
-          },
-          localeId: englishLocale.localeId,
-          listenOptions: stt.SpeechListenOptions(
-            listenMode: stt.ListenMode.dictation,
-          ),
-        );
-      }
-    } else {
+  void _onSpeechEngineStatus(String status) {
+    if (!mounted) return;
+    if (status == stt.SpeechToText.listeningStatus) {
+      final bool wasListening = _isListening;
+      setState(() => _isListening = true);
+      if (!wasListening) _startVoiceElapsedTicker();
+      return;
+    }
+    // Do not hide on `notListening`: Android emits it at end-of-speech before
+    // partial/final text and before `done`, which caused a <1s flash and empty field.
+    if (status == stt.SpeechToText.notListeningStatus) {
+      return;
+    }
+    if (status == stt.SpeechToText.doneStatus) {
+      _applyVoiceTextToField(_speech.lastRecognizedWords);
+      scheduleMicrotask(() {
+        if (!mounted) return;
+        _applyVoiceTextToField(_speech.lastRecognizedWords);
+      });
+      unawaited(Future<void>.delayed(const Duration(milliseconds: 160), () {
+        if (!mounted) return;
+        _applyVoiceTextToField(_speech.lastRecognizedWords);
+      }));
+      _stopVoiceElapsedTicker();
       setState(() => _isListening = false);
-      _speech.stop();
+    }
+  }
+
+  void _onVoiceMicLevel(double level) {
+    if (!mounted || !_isListening) return;
+    final DateTime now = DateTime.now();
+    if (_voiceSoundLevelThrottle != null &&
+        now.difference(_voiceSoundLevelThrottle!) <
+            const Duration(milliseconds: 100)) {
+      return;
+    }
+    _voiceSoundLevelThrottle = now;
+    final double n = ((level + 2) / 12).clamp(0.0, 1.0);
+    setState(() => _voiceSoundNorm = n);
+  }
+
+  Future<void> _pickVoiceLocaleFromDevice() async {
+    _voiceLocaleId = null;
+    try {
+      final locales = await _speech.locales();
+      if (locales.isEmpty) return;
+
+      bool isEnglish(String localeId) {
+        final String id = localeId.toLowerCase().replaceAll('_', '-');
+        return id == 'en' || id.startsWith('en-');
+      }
+
+      // Prefer English: mood validation and backend expect English in this flow.
+      String? picked;
+      for (final l in locales) {
+        final String id = l.localeId.toLowerCase().replaceAll('_', '-');
+        if (id == 'en-us') {
+          picked = l.localeId;
+          break;
+        }
+      }
+      if (picked == null) {
+        for (final l in locales) {
+          if (isEnglish(l.localeId)) {
+            picked = l.localeId;
+            break;
+          }
+        }
+      }
+      if (picked == null) {
+        final String lang = WidgetsBinding
+            .instance.platformDispatcher.locale.languageCode
+            .toLowerCase();
+        for (final l in locales) {
+          if (l.localeId.toLowerCase().startsWith(lang)) {
+            picked = l.localeId;
+            break;
+          }
+        }
+      }
+      _voiceLocaleId = picked ?? locales.first.localeId;
+    } catch (_) {}
+  }
+
+  static String _formatVoiceDuration(Duration d) {
+    final int totalSec = d.inSeconds.clamp(0, 359999);
+    final int m = totalSec ~/ 60;
+    final int s = totalSec % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  void _startVoiceElapsedTicker() {
+    _voiceElapsedTicker?.cancel();
+    _voiceElapsedOrigin = DateTime.now();
+    _voiceSoundLevelThrottle = null;
+    if (mounted) {
+      setState(() {
+        _voiceElapsed = Duration.zero;
+        _voiceSoundNorm = 0;
+      });
+    }
+    _voiceElapsedTicker = Timer.periodic(const Duration(milliseconds: 120), (_) {
+      if (!mounted || _voiceElapsedOrigin == null) return;
+      setState(() {
+        _voiceElapsed = DateTime.now().difference(_voiceElapsedOrigin!);
+      });
+    });
+  }
+
+  void _stopVoiceElapsedTicker() {
+    _voiceElapsedTicker?.cancel();
+    _voiceElapsedTicker = null;
+    _voiceElapsedOrigin = null;
+    _voiceSoundLevelThrottle = null;
+    if (mounted) {
+      setState(() {
+        _voiceElapsed = Duration.zero;
+        _voiceSoundNorm = 0;
+      });
+    }
+  }
+
+  Widget _buildVoiceDurationBar() {
+    if (!_isListening) {
+      return const SizedBox.shrink();
+    }
+    const Color accent = Color(0xff7f9461);
+    final double maxMs = const Duration(minutes: 2).inMilliseconds.toDouble();
+    final double progress =
+        (_voiceElapsed.inMilliseconds / maxMs).clamp(0.0, 1.0);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFF2d3d24).withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: accent.withValues(alpha: 0.25)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Icon(Icons.fiber_manual_record,
+                      color: Colors.red.shade600, size: 14),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Listening',
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _formatVoiceDuration(_voiceElapsed),
+                    style: TextStyle(
+                      color: accent.withValues(alpha: 0.95),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(999),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 5,
+                  backgroundColor: accent.withValues(alpha: 0.12),
+                  color: accent,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Icon(
+                    _voiceSoundNorm > 0.12
+                        ? Icons.graphic_eq
+                        : Icons.graphic_eq_outlined,
+                    size: 18,
+                    color: _voiceSoundNorm > 0.12
+                        ? accent
+                        : accent.withValues(alpha: 0.45),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          _voiceSoundNorm > 0.12
+                              ? 'Sound is reaching the mic'
+                              : 'Waiting for your voice…',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: accent.withValues(alpha: 0.92),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(999),
+                          child: LinearProgressIndicator(
+                            value: _voiceSoundNorm.clamp(0.0, 1.0),
+                            minHeight: 4,
+                            backgroundColor: accent.withValues(alpha: 0.1),
+                            color: _voiceSoundNorm > 0.12
+                                ? const Color(0xff5a8f4a)
+                                : accent.withValues(alpha: 0.35),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              if (_voiceElapsed.inSeconds >= 2 && _voiceSoundNorm < 0.1) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'If this stays still, check mic permission or try speaking louder.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.brown.shade700.withValues(alpha: 0.85),
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Clears a stuck session. [hard] uses [cancel] (heavier); use soft between quick retries.
+  Future<void> _prepareSpeechEngine({bool hard = true}) async {
+    try {
+      if (_speech.isListening) {
+        await _speech.stop();
+      }
+    } catch (_) {}
+    if (hard) {
+      try {
+        await _speech.cancel();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 320));
+    } else {
+      await Future<void>.delayed(const Duration(milliseconds: 280));
+    }
+  }
+
+  void _applyVoiceTextToField(String text) {
+    if (!mounted) return;
+    if (_textController.text == text) return;
+    _textController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    setState(() {});
+  }
+
+  Future<void> _performSpeechListen() async {
+    await _speech.listen(
+      onResult: (result) {
+        if (!mounted) return;
+        _applyVoiceTextToField(result.recognizedWords);
+      },
+      onSoundLevelChange: _onVoiceMicLevel,
+      localeId: _voiceLocaleId,
+      listenFor: const Duration(minutes: 2),
+      pauseFor: const Duration(seconds: 10),
+      listenOptions:  stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+        cancelOnError: false,
+      ),
+    );
+  }
+
+  /// One silent, throttled retry after [error_busy] (no snackbars — avoids spam loops).
+  Future<void> _recoverFromSpeechBusyLight() async {
+    if (_voiceBusyRecoveryInFlight || !mounted) return;
+    final DateTime now = DateTime.now();
+    if (_lastVoiceBusyRecoveryAt != null &&
+        now.difference(_lastVoiceBusyRecoveryAt!) < const Duration(seconds: 12)) {
+      return;
+    }
+    _lastVoiceBusyRecoveryAt = now;
+    _voiceBusyRecoveryInFlight = true;
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+      try {
+        if (_speech.isListening) {
+          await _speech.stop();
+        }
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (!mounted || !_speech.isAvailable) return;
+      await _performSpeechListen();
+    } catch (e, st) {
+      debugPrint('Voice busy recovery: $e\n$st');
+    } finally {
+      _voiceBusyRecoveryInFlight = false;
+    }
+  }
+
+  Future<void> _toggleVoiceInput() async {
+    if (_speechInitializing) return;
+
+    if (kIsWeb) {
+      _showVoiceSnack('Voice input is not available in the web build.', isError: true);
+      return;
+    }
+
+    if (_speech.isListening || _isListening) {
+      _stopVoiceElapsedTicker();
+      if (_speech.isListening) {
+        await _speech.stop();
+      } else {
+        try {
+          await _speech.cancel();
+        } catch (_) {}
+      }
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+
+    setState(() => _speechInitializing = true);
+    try {
+      final bool available = await _speech.initialize(
+        onError: _onSpeechEngineError,
+        onStatus: _onSpeechEngineStatus,
+        options: <stt.SpeechConfigOption>[
+          stt.SpeechToText.androidIntentLookup,
+        ],
+      );
+      _attachSpeechCallbacks();
+
+      if (!available) {
+        if (mounted) {
+          _showVoiceSnack(
+            'Speech recognition is not available. Allow microphone access in system settings, then try again.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      await _pickVoiceLocaleFromDevice();
+
+      Future<bool> tryListenOnce() async {
+        await _performSpeechListen();
+        return _speech.isListening;
+      }
+
+      var started = await tryListenOnce();
+      if (!started && mounted) {
+        await _prepareSpeechEngine(hard: false);
+        started = await tryListenOnce();
+      }
+      if (!started && mounted) {
+        await _prepareSpeechEngine(hard: true);
+        started = await tryListenOnce();
+      }
+
+      if (mounted && !started) {
+        _showVoiceSnack(
+          'Could not start listening. Check microphone permission and try again.',
+          isError: true,
+        );
+      } else if (mounted && started) {
+        final bool wasListening = _isListening;
+        setState(() => _isListening = true);
+        if (!wasListening) _startVoiceElapsedTicker();
+      }
+    } on stt.ListenFailedException catch (e) {
+      if (mounted) {
+        _stopVoiceElapsedTicker();
+        setState(() => _isListening = false);
+        _showVoiceSnack(e.message ?? 'Voice input failed to start.', isError: true);
+      }
+    } catch (e, st) {
+      debugPrint('Voice input: $e\n$st');
+      if (mounted) {
+        _stopVoiceElapsedTicker();
+        setState(() => _isListening = false);
+        _showVoiceSnack('Voice input error. Please try again.', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _speechInitializing = false);
     }
   }
 
@@ -408,32 +848,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final result = await _data.analyzeMood(initialInput, _classifications);
 
     if (result != null && mounted) {
-      final saved = await _data.saveAnalysisToFirestore(
+      final List<Map<String, dynamic>> activitiesOut =
+          List<Map<String, dynamic>>.from(result['activities'] as List<dynamic>);
+
+      final String? newAnalysisId = await _data.saveAnalysisToFirestore(
         userId: _userId,
         text: initialInput,
-        classification: result['classification'],
-        goal: result['goal'],
+        classification: result['classification'].toString(),
+        goal: result['goal'].toString(),
         startDate: DateTime.now(),
-        duration: result['duration'],
-        activities: result['activities'],
+        duration: ((result['duration'] as num?) ?? 7).round(),
+        activities: activitiesOut,
+        professionalEscalation: result['professionalEscalation'] == true,
       );
 
-      if (saved) {
+      if (newAnalysisId != null) {
+        final bool esc = result['professionalEscalation'] == true;
         setState(() {
           _todayAnalysisCount++;
           _textController.clear();
           _isAnalyzing = false;
+          _professionalEscalation = esc;
+          _currentActivities = activitiesOut;
+          _currentGoal = result['goal'].toString();
         });
-        await _checkForRecurringDiagnosis(result['classification']);
+        await _checkForRecurringDiagnosis(
+          result['classification'].toString(),
+          newAnalysisId,
+        );
 
-        // Show success message
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text(
-              'Analysis complete! Your goal and activities are ready below.',
+            content: Text(
+              esc
+                  ? 'We paused daily activities for your safety. Please read the message under Your Goal and contact a professional or emergency services if you are in danger.'
+                  : 'Analysis complete! Your goal and activities are ready below.',
             ),
             backgroundColor: const Color(0xff7f9461),
-            duration: const Duration(seconds: 2),
+            duration: Duration(seconds: esc ? 5 : 2),
           ),
         );
       } else {
@@ -451,15 +904,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _startQuestionCollection();
   }
 
-  Future<void> _checkForRecurringDiagnosis(String newDiagnosis) async {
-    final shouldNotify = await _data.checkForRecurringDiagnosis(_userId, newDiagnosis, _recentDiagnoses);
+  Future<void> _checkForRecurringDiagnosis(
+    String newDiagnosis,
+    String newlySavedAnalysisId,
+  ) async {
+    final bool shouldNotify = await _data.checkForRecurringDiagnosis(
+      _userId,
+      newDiagnosis,
+      newlySavedAnalysisId,
+    );
     if (shouldNotify && mounted) {
       _logic.showRecurringDiagnosisNotification(context);
     }
   }
 
   void _toggleActivity(int index) async {
-    if (_userId.isEmpty || _currentAnalysisId.isEmpty || _isGoalCompleted) return;
+    if (_userId.isEmpty ||
+        _currentAnalysisId.isEmpty ||
+        _isGoalCompleted ||
+        _professionalEscalation) {
+      return;
+    }
 
     final activity = _currentActivities[index];
     final bool wasCompletedToday = _logic.isActivityCompletedToday(activity);
@@ -649,21 +1114,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
+                      ] else ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.mic_none,
+                              size: 14,
+                              color: const Color(0xff7f9461).withOpacity(0.6),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'Answer in English by typing or tap Voice Input — speech is converted to text before you submit.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: const Color(0xff7f9461).withOpacity(0.7),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                       const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed:
-                                  (isBusy || _isCollectingInfo) ? null : _listen,
-                              icon: Icon(
-                                _isListening ? Icons.mic : Icons.mic_none,
-                                color: Colors.white,
-                                size: 20,
-                              ),
+                              onPressed: isBusy || _speechInitializing
+                                  ? null
+                                  : () => unawaited(_toggleVoiceInput()),
+                              icon: _speechInitializing
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Icon(
+                                      _isListening ? Icons.mic : Icons.mic_none,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
                               label: Text(
-                                _isListening ? "Listening..." : "Voice Input",
+                                _speechInitializing
+                                    ? 'Preparing…'
+                                    : (_isListening ? 'Listening…' : 'Voice Input'),
                                 style: const TextStyle(color: Colors.white, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
@@ -715,6 +1214,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ],
                       ),
+                      _buildVoiceDurationBar(),
                     ],
                   ),
                 ),
@@ -920,7 +1420,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 const SizedBox(height: 20),
 
-                if (_currentActivities.isNotEmpty)
+                if (_professionalEscalation)
+                  _buildCard(
+                    icon: Icons.medical_information_outlined,
+                    title: 'ACTIVITIES NOT OFFERED — SEEK IN-PERSON CARE',
+                    child: _buildProfessionalEscalationActivitiesMessage(),
+                  )
+                else if (_currentActivities.isNotEmpty)
                   _buildCard(
                     icon: Icons.star,
                     title: _isGoalCompleted ? "COMPLETED ACTIVITIES" : "TODAY'S ACTIVITIES (5 points each)",
@@ -1024,7 +1530,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
-                if (_currentActivities.isEmpty)
+                if (!_professionalEscalation && _currentActivities.isEmpty)
                   _buildCard(
                     icon: Icons.eco_outlined,
                     title: "NO ACTIVITIES YET",
@@ -1470,6 +1976,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
+    );
+  }
+
+  /// Shown when the model flagged serious risk: no habit activities; English copy.
+  Widget _buildProfessionalEscalationActivitiesMessage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'Based on what you shared, Bur will not suggest daily habit activities right now. '
+          'This app is not a substitute for a clinician or emergency services.',
+          style: TextStyle(
+            color: const Color(0xff7f9461).withOpacity(0.95),
+            fontSize: 13.5,
+            height: 1.38,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'If you might hurt yourself or someone else, call your local emergency number immediately. '
+          'Otherwise, please contact a licensed mental health professional or your doctor as soon as you can.',
+          style: TextStyle(
+            color: Colors.brown.shade800.withOpacity(0.9),
+            fontSize: 13,
+            height: 1.38,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 

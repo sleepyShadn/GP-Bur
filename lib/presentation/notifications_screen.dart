@@ -408,7 +408,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       ),
                                     ],
                                     if (row.diagnosis != null &&
-                                        row.diagnosis!.trim().isNotEmpty) ...<Widget>[
+                                        row.diagnosis!.trim().isNotEmpty &&
+                                        row.type != 'recurring_diagnosis') ...<Widget>[
                                       const SizedBox(height: 8),
                                       Container(
                                         width: double.infinity,

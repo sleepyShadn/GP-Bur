@@ -261,9 +261,11 @@ class HomeLogic {
   void showRecurringDiagnosisNotification(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Our system identified a recurring pattern in your recent logs.'),
+        content: const Text(
+          'We sent you a gentle heads-up in English about your last three check-ins. Open Notifications to read it anytime.',
+        ),
         backgroundColor: colorGreenDark,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 5),
       ),
     );
   }

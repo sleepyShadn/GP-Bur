@@ -33,6 +33,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
     'adhd': 'Attention',
     'mood swings': 'Mood',
     'mild anger issues': 'Calm',
+    'professional support referral': 'Support',
   };
 
   static const Map<String, String> _classificationFriendlyLabels =
@@ -44,6 +45,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
     'adhd': 'Attention Stability',
     'mood swings': 'Mood Stability',
     'mild anger issues': 'Emotional Calm',
+    'professional support referral': 'Professional support',
   };
 
   final List<String> _classifications = List<String>.from(

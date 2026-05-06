@@ -18,6 +18,7 @@ class AnalysisData {
     'adhd': 'Attention Stability',
     'mood swings': 'Mood Stability',
     'mild anger issues': 'Emotional Calm',
+    'professional support referral': 'Professional support',
   };
 
   Future<Map<String, dynamic>?> getCurrentUser() async {

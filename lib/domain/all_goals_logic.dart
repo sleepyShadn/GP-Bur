@@ -471,6 +471,8 @@ class AllGoalsLogic {
         return {'icon': Icons.sentiment_neutral_rounded, 'color': const Color(0xFFEC407A)};
       case 'mild anger issues':
         return {'icon': Icons.self_improvement_rounded, 'color': const Color(0xFFE64A19)};
+      case 'professional support referral':
+        return {'icon': Icons.medical_information_outlined, 'color': const Color(0xFFB71C1C)};
       default:
         return {'icon': Icons.psychology, 'color': colorGreenDark};
     }

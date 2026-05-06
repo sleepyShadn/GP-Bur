@@ -47,5 +47,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bur needs the microphone to turn your spoken check-in into text.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Bur uses speech recognition to fill your mood answers from your voice.</string>
 </dict>
 </plist>

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async';
 
+import '../domain/assessment_classifications.dart';
 import '../domain/feeling_input_validation.dart';
 import '../domain/mood_input_verdict.dart';
 import '../services/local_notification_inbox_store.dart';
@@ -114,6 +115,7 @@ class HomeData {
           'goalExpiryDate': goalExpiryDate,
           'isGoalCompleted': data['isGoalCompleted'] ?? false,
           'activities': activities,
+          'professionalEscalation': data['professionalEscalation'] == true,
         });
       } else {
         onData(null);
@@ -595,16 +597,18 @@ Detailed Information Collected:
 Based on the following COMPLETE information about the user's symptoms, duration of symptoms, and impact on daily routine, analyze their mental state and provide:
 
 1. Classification: Choose exactly ONE from these categories: ${classifications.join(', ')}
-2. Goal: Create a personalized, specific, and actionable goal based on the user's unique situation (one sentence, max 20 words)
-3. Duration: Suggest a duration for completing this goal in days. Choose appropriately: 5, 6, 7, 10, 14, 21, or 30 days based on severity and duration of symptoms
-4. Activities: Generate 4 specific, actionable, personalized activities tailored to the user's symptoms and daily routine impact. Each activity should be achievable within one day.
+2. Goal: For routine cases — one personalized, actionable sentence (max 20 words). For SAFETY CASES (see below) — a clear English message telling the user to contact local emergency services if in immediate danger, or a licensed clinician / doctor as soon as possible (no self-harm instructions, no medical dosing).
+3. Duration: For routine cases only — choose from 5, 6, 7, 10, 14, 21, or 30 days. For classification "${kProfessionalSupportReferralClassification}" use 7.
+4. Activities: For routine cases — exactly 4 objects. For "${kProfessionalSupportReferralClassification}" you MUST return an empty array [] and MUST NOT suggest habit or wellness tasks.
+
+SAFETY — use classification "${kProfessionalSupportReferralClassification}" when ANY apply (non-exhaustive): expressed or implied suicide or self-harm intent, plan, or recent attempt; wanting to die; severe hopelessness with intent; homicidal ideation; command hallucinations or loss of reality posing risk; inability to care for self with acute risk; severe substance withdrawal; or any situation where generic daily activities could delay urgent care. In those cases: "activities" MUST be [].
 
 User Information:
 $fullContext
 
-IMPORTANT: Use ALL the collected information to personalize your response. The activities and goal MUST directly address the specific symptoms and routine impacts mentioned by the user.
+IMPORTANT: For routine categories only, personalize activities and goal from the user's answers. Never output habit activities when you chose "${kProfessionalSupportReferralClassification}".
 
-Return ONLY valid JSON in this exact format:
+Return ONLY valid JSON in this exact format (activities may be []):
 {
   "classification": "category name",
   "goal": "personalized goal sentence",
@@ -627,7 +631,11 @@ Return ONLY valid JSON in this exact format:
         body: jsonEncode({
           'model': 'gpt-3.5-turbo',
           'messages': [
-            {'role': 'system', 'content': 'You are a mental health assistant specializing in personalized care. Use ALL user information to create tailored responses. Return valid JSON only. Focus on symptoms, duration, and daily routine impact.'},
+            {
+              'role': 'system',
+              'content':
+                  'You are a mental health assistant. Prioritize user safety. When risk is severe, use classification "$kProfessionalSupportReferralClassification" with "activities": []. Otherwise return exactly four activities. Return valid JSON only.',
+            },
             {'role': 'user', 'content': prompt}
           ],
           'temperature': 0.7,
@@ -646,25 +654,54 @@ Return ONLY valid JSON in this exact format:
 
         Map<String, dynamic> result = jsonDecode(content);
 
-        if (classifications.contains(result['classification'].toString().toLowerCase())) {
-          List<Map<String, dynamic>> activities = (result['activities'] as List).map((activity) {
-            return {
-              'title': activity['title'],
-              'points': activity['points'] ?? 5,
+        final String classification =
+            result['classification'].toString().toLowerCase().trim();
+        if (!classifications.contains(classification)) {
+          return null;
+        }
+
+        final bool professionalEscalation =
+            classification == kProfessionalSupportReferralClassification;
+
+        List<Map<String, dynamic>> activities = <Map<String, dynamic>>[];
+        if (!professionalEscalation && result['activities'] is List) {
+          activities = (result['activities'] as List).map((dynamic activity) {
+            final Map<String, dynamic> a = activity as Map<String, dynamic>;
+            return <String, dynamic>{
+              'title': a['title'],
+              'points': a['points'] ?? 5,
               'completed': false,
-              'activityId': DateTime.now().millisecondsSinceEpoch.toString() + activity['title'],
+              'activityId':
+                  '${DateTime.now().millisecondsSinceEpoch}_${a['title']}',
               'lastCompletedDate': null,
-              'dailyHistory': {},
+              'dailyHistory': <String, dynamic>{},
             };
           }).toList();
-
-          return {
-            'classification': result['classification'].toString().toLowerCase(),
-            'goal': result['goal'],
-            'duration': result['duration'] ?? 7,
-            'activities': activities,
-          };
         }
+
+        String goal = result['goal']?.toString().trim() ?? '';
+        if (professionalEscalation) {
+          if (goal.length < 24) {
+            goal = kProfessionalEscalationFallbackGoal;
+          }
+        }
+
+        int duration = (result['duration'] is num)
+            ? (result['duration'] as num).round()
+            : 7;
+        if (professionalEscalation) {
+          duration = 7;
+        } else if (activities.length != 4) {
+          return null;
+        }
+
+        return <String, dynamic>{
+          'classification': classification,
+          'goal': goal,
+          'duration': duration,
+          'activities': activities,
+          'professionalEscalation': professionalEscalation,
+        };
       }
     } catch (e) {
       print('Error analyzing mood: $e');
@@ -672,7 +709,8 @@ Return ONLY valid JSON in this exact format:
     return null;
   }
 
-  Future<bool> saveAnalysisToFirestore({
+  /// Returns the new analysis document id on success, or null on failure.
+  Future<String?> saveAnalysisToFirestore({
     required String userId,
     required String text,
     required String classification,
@@ -680,8 +718,9 @@ Return ONLY valid JSON in this exact format:
     required DateTime startDate,
     required int duration,
     required List<Map<String, dynamic>> activities,
+    bool professionalEscalation = false,
   }) async {
-    if (userId.isEmpty) return false;
+    if (userId.isEmpty) return null;
 
     try {
       DateTime expiryDate = startDate.add(Duration(days: duration));
@@ -696,6 +735,7 @@ Return ONLY valid JSON in this exact format:
         'goalDurationDays': duration,
         'goalExpiryDate': expiryDate,
         'isGoalCompleted': false,
+        'professionalEscalation': professionalEscalation,
         'activities': activities.map((activity) => {
           'title': activity['title'],
           'points': activity['points'],
@@ -718,41 +758,97 @@ Return ONLY valid JSON in this exact format:
       // Reset collection after saving
       resetCollection();
 
-      return true;
+      return analysisId;
     } catch (e) {
       print('Error saving analysis: $e');
-      return false;
+      return null;
     }
   }
 
-  Future<bool> checkForRecurringDiagnosis(String userId, String newDiagnosis, List<String> recentDiagnoses) async {
-    if (userId.isEmpty || newDiagnosis.isEmpty) return false;
-
-    recentDiagnoses.insert(0, newDiagnosis);
-    if (recentDiagnoses.length > 3) {
-      recentDiagnoses = recentDiagnoses.sublist(0, 3);
+  /// Fires when the user completes **exactly three check-ins in a row** whose
+  /// stored [classification] matches (case-insensitive). Uses Firestore only;
+  /// the label is never shown in the main UI—only this notification/inbox row.
+  ///
+  /// A 4th consecutive same classification does not notify again until the
+  /// streak breaks and later reaches three again.
+  Future<bool> checkForRecurringDiagnosis(
+    String userId,
+    String newDiagnosis,
+    String newlySavedAnalysisId,
+  ) async {
+    if (userId.isEmpty ||
+        newDiagnosis.trim().isEmpty ||
+        newlySavedAnalysisId.trim().isEmpty) {
+      return false;
     }
 
-    if (recentDiagnoses.length == 3 && recentDiagnoses.every((d) => d == newDiagnosis)) {
-      await _notificationService.showLocalNotificationOnly(
-        title: 'Checking in',
-        body: 'It looks like it\'s been a heavy few days. When you have a moment, let\'s take a breath and check in together.',
-        payload: 'recurring_diagnosis',
-        inboxUserId: userId,
-        persistToInbox: false,
-      );
-
-      await LocalNotificationInboxStore.instance.append(
-        userId: userId,
-        title: 'Early Warning Alert',
-        body: 'Our system identified a recurring pattern in your recent logs.',
-        type: 'recurring_diagnosis',
-        diagnosis: newDiagnosis,
-      );
-
-      return true;
+    final String norm = newDiagnosis.trim().toLowerCase();
+    if (norm == kProfessionalSupportReferralClassification) {
+      return false;
     }
-    return false;
+
+    QuerySnapshot<Map<String, dynamic>>? snap;
+
+    for (int attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+      }
+      snap = await _firestore
+          .collection('users')
+          .doc(userId)
+          .collection('analyses')
+          .orderBy('timestamp', descending: true)
+          .limit(16)
+          .get();
+
+      if (snap.docs.isNotEmpty && snap.docs.first.id == newlySavedAnalysisId) {
+        break;
+      }
+    }
+
+    if (snap == null ||
+        snap.docs.isEmpty ||
+        snap.docs.first.id != newlySavedAnalysisId) {
+      return false;
+    }
+
+    int consecutive = 0;
+    for (final QueryDocumentSnapshot<Map<String, dynamic>> doc in snap.docs) {
+      final String c =
+          (doc.data()['classification'] ?? '').toString().trim().toLowerCase();
+      if (c == norm && c.isNotEmpty) {
+        consecutive++;
+      } else {
+        break;
+      }
+    }
+
+    if (consecutive != 3) {
+      return false;
+    }
+
+    const String title = 'Your check-ins follow a similar theme';
+    const String body =
+        'Bur noticed your last three daily check-ins landed in a similar emotional space. '
+        'That can feel heavy—when you are ready, consider talking with someone you trust or a licensed professional. '
+        'Small steps in the app still count.';
+
+    await _notificationService.showLocalNotificationOnly(
+      title: title,
+      body: body,
+      payload: 'recurring_diagnosis',
+      inboxUserId: userId,
+      persistToInbox: false,
+    );
+
+    await LocalNotificationInboxStore.instance.append(
+      userId: userId,
+      title: title,
+      body: body,
+      type: 'recurring_diagnosis',
+    );
+
+    return true;
   }
 
   Future<bool> toggleActivity(String userId, String analysisId, int index, Map<String, dynamic> activity) async {
