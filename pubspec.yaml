@@ -80,7 +80,12 @@ flutter:
     - assets/animations/plant.json
     - assets/images/watering/watering_bg_spring.png
     - assets/images/watering/watering_bg_summer.png
-    - assets/images/profile/
+    - assets/images/profile/arab-man.png
+    - assets/images/profile/arabman2.png
+    - assets/images/profile/female.jpg
+    - assets/images/profile/female2.jpg
+    - assets/images/profile/femaleplaceholder.jpg
+    - assets/images/profile/placeholderuser.png
     - assets/images/leaf_main.png
     - assets/images/tree_1.png
     - assets/images/tree_2.png
