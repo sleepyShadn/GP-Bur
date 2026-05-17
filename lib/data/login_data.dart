@@ -23,21 +23,47 @@ class LoginData {
   }
 
   Future<LoginResult> sendPasswordResetEmail(String email) async {
+    final String trimmed = email.trim();
+    if (trimmed.isEmpty) {
+      return LoginResult(
+        success: false,
+        errorMessage: 'Please enter your email address',
+      );
+    }
+
     try {
-      await _auth.sendPasswordResetEmail(email: email);
+      await _auth.sendPasswordResetEmail(email: trimmed);
       return LoginResult(success: true);
     } on FirebaseAuthException catch (e) {
       String errorMessage = 'Failed to send reset email';
-      if (e.code == 'user-not-found') {
-        errorMessage = 'No user found with this email address';
-      } else if (e.code == 'invalid-email') {
-        errorMessage = 'Invalid email address format';
-      } else if (e.code == 'network-request-failed') {
-        errorMessage = 'Network error. Please check your internet connection';
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'No account found with this email address';
+          break;
+        case 'invalid-email':
+          errorMessage = 'Invalid email address format';
+          break;
+        case 'network-request-failed':
+          errorMessage = 'Network error. Please check your internet connection';
+          break;
+        case 'too-many-requests':
+          errorMessage = 'Too many attempts. Please wait a few minutes and try again';
+          break;
+        case 'missing-email':
+          errorMessage = 'Please enter your email address';
+          break;
+        default:
+          final String? msg = e.message?.trim();
+          if (msg != null && msg.isNotEmpty) {
+            errorMessage = msg;
+          }
       }
       return LoginResult(success: false, errorMessage: errorMessage);
     } catch (e) {
-      return LoginResult(success: false, errorMessage: 'An error occurred. Please try again');
+      return LoginResult(
+        success: false,
+        errorMessage: 'An error occurred. Please try again',
+      );
     }
   }
 

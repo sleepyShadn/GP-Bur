@@ -1,4 +1,6 @@
 // ========== lib/presentation/login_screen.dart ==========
+import 'dart:async';
+
 import 'package:appforhumman/presentation/register_screen.dart';
 import 'package:flutter/material.dart';
 import '../../domain/login_logic.dart';
@@ -22,6 +24,7 @@ class _LoginState extends State<Login> {
   final FocusNode _emailFocusNode = FocusNode();
   final FocusNode _passwordFocusNode = FocusNode();
   bool _isLoading = false;
+  bool _isResettingPassword = false;
   bool _obscurePassword = true;
   bool _rememberMe = false;
   String? _loginErrorMessage;
@@ -133,33 +136,178 @@ class _LoginState extends State<Login> {
     );
   }
 
-  Future<void> _sendPasswordResetEmail() async {
-    if (_emailController.text.isEmpty) {
-      _showErrorDialog('Please enter your email to reset password');
+  Future<void> _handleForgotPassword() async {
+    if (_isLoading || _isResettingPassword) return;
+
+    final String emailOnForm = _emailController.text.trim();
+    if (emailOnForm.isEmpty) {
+      await _showResetEmailDialog();
       return;
     }
 
-    if (!_logic.isValidEmail(_emailController.text.trim())) {
+    if (!_logic.isValidEmail(emailOnForm)) {
       _showErrorDialog('Please enter a valid email address');
       return;
     }
 
-    final result = await _data.sendPasswordResetEmail(
-      _emailController.text.trim(),
-    );
+    await _sendPasswordResetEmail(emailOnForm);
+  }
+
+  Future<void> _sendPasswordResetEmail(String email) async {
+    final String trimmed = email.trim();
+    if (trimmed.isEmpty) {
+      _showErrorDialog('Please enter your email to reset password');
+      return;
+    }
+
+    if (!_logic.isValidEmail(trimmed)) {
+      _showErrorDialog('Please enter a valid email address');
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _isResettingPassword = true);
+
+    final LoginResult result = await _data.sendPasswordResetEmail(trimmed);
+
+    if (!mounted) return;
+    setState(() => _isResettingPassword = false);
 
     if (result.success) {
       _showSuccessDialog(
         'Password Reset Email Sent',
-        'A password reset link has been sent to ${_emailController.text}. Check your email to change your password.',
+        'A password reset link has been sent to $trimmed. Check your inbox (and spam folder) to set a new password.',
       );
     } else {
-      _showErrorDialog(result.errorMessage!);
+      _showErrorDialog(
+        result.errorMessage ?? 'Could not send reset email. Please try again.',
+      );
+    }
+  }
+
+  Future<void> _showResetEmailDialog() async {
+    final TextEditingController dialogEmailController = TextEditingController();
+
+    try {
+      final String? submittedEmail = await showDialog<String>(
+        context: context,
+        barrierDismissible: true,
+        builder: (BuildContext dialogContext) {
+          String? inlineError;
+
+          return StatefulBuilder(
+            builder: (BuildContext context, StateSetter setDialogState) {
+              return AlertDialog(
+                backgroundColor: _logic.colorCream,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: const Text(
+                  'Reset password',
+                  style: TextStyle(color: Color(0xFFA5B68D)),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Text(
+                      'Enter the email you used to register. We will send you a reset link.',
+                      style: TextStyle(color: Color(0xFFA5B68D), height: 1.35),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: dialogEmailController,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const <String>[AutofillHints.email],
+                      autocorrect: false,
+                      style: const TextStyle(color: Color(0xFF362427)),
+                      decoration: InputDecoration(
+                        hintText: 'you@example.com',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF8E8A83),
+                          fontStyle: FontStyle.italic,
+                        ),
+                        errorText: inlineError,
+                        filled: true,
+                        fillColor: _logic.colorPinkish,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onSubmitted: (_) {
+                        final String value = dialogEmailController.text.trim();
+                        if (value.isEmpty) {
+                          setDialogState(() {
+                            inlineError = 'Email is required';
+                          });
+                          return;
+                        }
+                        if (!_logic.isValidEmail(value)) {
+                          setDialogState(() {
+                            inlineError = 'Enter a valid email';
+                          });
+                          return;
+                        }
+                        Navigator.pop(dialogContext, value);
+                      },
+                    ),
+                  ],
+                ),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Color(0xFFA5B68D)),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      final String value = dialogEmailController.text.trim();
+                      if (value.isEmpty) {
+                        setDialogState(() {
+                          inlineError = 'Email is required';
+                        });
+                        return;
+                      }
+                      if (!_logic.isValidEmail(value)) {
+                        setDialogState(() {
+                          inlineError = 'Enter a valid email';
+                        });
+                        return;
+                      }
+                      Navigator.pop(dialogContext, value);
+                    },
+                    child: const Text(
+                      'Send reset link',
+                      style: TextStyle(
+                        color: Color(0xFFA5B68D),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (!mounted || submittedEmail == null || submittedEmail.trim().isEmpty) {
+        return;
+      }
+
+      await _sendPasswordResetEmail(submittedEmail);
+    } finally {
+      dialogEmailController.dispose();
     }
   }
 
   void _showErrorDialog(String message) {
-    showDialog(
+    if (!mounted) return;
+    showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _logic.colorCream,
@@ -176,7 +324,8 @@ class _LoginState extends State<Login> {
   }
 
   void _showSuccessDialog(String title, String message) {
-    showDialog(
+    if (!mounted) return;
+    showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _logic.colorCream,
@@ -186,49 +335,6 @@ class _LoginState extends State<Login> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('OK', style: TextStyle(color: Color(0xFFA5B68D))),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showEnterEmailDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: _logic.colorCream,
-        title: const Text('Enter Email', style: TextStyle(color: Color(0xFFA5B68D))),
-        content: TextField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: InputDecoration(
-            hintText: 'sara@gmail.com',
-            hintStyle: const TextStyle(
-              color: Color(0xFFA5B68D),
-              fontStyle: FontStyle.italic,
-            ),
-            filled: true,
-            fillColor: _logic.colorPinkish,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Color(0xFFA5B68D))),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              if (_emailController.text.isNotEmpty) {
-                await _sendPasswordResetEmail();
-              }
-            },
-            child: const Text('Send Reset Link',
-                style: TextStyle(color: Color(0xFFA5B68D))),
           ),
         ],
       ),
@@ -532,25 +638,30 @@ class _LoginState extends State<Login> {
                             ),
                           ),
                           GestureDetector(
-                            onTap: () async {
-                              if (_emailController.text.isEmpty) {
-                                _showEnterEmailDialog();
-                              } else {
-                                await _sendPasswordResetEmail();
-                              }
-                            },
+                            onTap: (_isLoading || _isResettingPassword)
+                                ? null
+                                : () => unawaited(_handleForgotPassword()),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
                                   vertical: 8, horizontal: 12),
-                              child: const Text(
-                                "Forgot Password?",
-                                style: TextStyle(
-                                  color: Color(0xFF356B24),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  decoration: TextDecoration.underline,
-                                ),
-                              ),
+                              child: _isResettingPassword
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Color(0xFF356B24),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Forgot Password?',
+                                      style: TextStyle(
+                                        color: Color(0xFF356B24),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        decoration: TextDecoration.underline,
+                                      ),
+                                    ),
                             ),
                           ),
                         ],

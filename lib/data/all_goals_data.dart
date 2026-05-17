@@ -39,40 +39,49 @@ class AllGoalsData {
         var data = analysisDoc.data() as Map<String, dynamic>;
         List<dynamic> activities = List.from(data['activities'] ?? []);
 
-        Timestamp? expiryTimestamp = data['goalExpiryDate'];
-        bool isGoalCompleted = data['isGoalCompleted'] ?? false;
-
-        if (expiryTimestamp != null) {
-          DateTime expiryDate = expiryTimestamp.toDate();
-          if (DateTime.now().isAfter(expiryDate) || isGoalCompleted) {
-            return false;
-          }
+        final bool isGoalCompleted = data['isGoalCompleted'] ?? false;
+        if (isGoalCompleted) {
+          return false;
         }
 
         if (activityIndex < activities.length) {
-          DateTime now = DateTime.now();
-          String todayKey = '${now.year}-${now.month}-${now.day}';
+          final DateTime now = DateTime.now();
+          final String todayKey = '${now.year}-${now.month}-${now.day}';
+          final Map<String, dynamic> target =
+              Map<String, dynamic>.from(activities[activityIndex] as Map);
+          final int points = (target['points'] as num?)?.toInt() ?? 5;
 
-          activities[activityIndex]['completed'] = newValue;
-          activities[activityIndex]['lastCompletedDate'] = Timestamp.fromDate(now);
+          target['completed'] = newValue;
+          target['lastCompletedDate'] =
+              newValue ? Timestamp.fromDate(now) : null;
 
-          if (activities[activityIndex]['dailyHistory'] == null) {
-            activities[activityIndex]['dailyHistory'] = {};
-          }
-          activities[activityIndex]['dailyHistory'][todayKey] = newValue;
+          final Map<String, dynamic> history = Map<String, dynamic>.from(
+            target['dailyHistory'] as Map? ?? <String, dynamic>{},
+          );
+          history[todayKey] = newValue;
+          target['dailyHistory'] = history;
+          activities[activityIndex] = target;
 
-          await _firestore
-              .collection('users')
-              .doc(userId)
+          final DocumentReference userRef =
+              _firestore.collection('users').doc(userId);
+          await userRef
               .collection('analyses')
               .doc(analysisId)
-              .update({'activities': activities});
+              .update(<String, dynamic>{'activities': activities});
 
           if (newValue) {
-            int points = activities[activityIndex]['points'] ?? 5;
-            await _firestore.collection('users').doc(userId).update({
+            await userRef.update(<String, dynamic>{
               'points': FieldValue.increment(points),
             });
+          } else {
+            final DocumentSnapshot userDoc = await userRef.get();
+            final int currentPoints =
+                ((userDoc.data() as Map<String, dynamic>?)?['points'] as num?)
+                        ?.toInt() ??
+                    0;
+            final int updatedPoints =
+                (currentPoints - points).clamp(0, 1 << 31);
+            await userRef.update(<String, dynamic>{'points': updatedPoints});
           }
           return true;
         }

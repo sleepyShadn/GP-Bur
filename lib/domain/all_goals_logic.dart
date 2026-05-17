@@ -76,9 +76,8 @@ class AllGoalsLogic {
   }
 
   Widget buildAnalysisCard(BuildContext context, Map<String, dynamic> data, Function(String, int, bool) onToggle) {
-    String classification = data['classification'] ?? 'Unknown';
+    final bool professionalEscalation = data['professionalEscalation'] == true;
     String goal = data['goal'] ?? 'No goal set';
-    String text = data['text'] ?? '';
     String analysisId = data['analysisId'] ?? '';
 
     Timestamp? startTimestamp = data['goalStartDate'];
@@ -123,8 +122,6 @@ class AllGoalsLogic {
       analysisDateStr = '${analysisDate.day}/${analysisDate.month}/${analysisDate.year}';
     }
 
-    Map<String, dynamic> classificationStyle = _getClassificationStyle(classification);
-
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
       decoration: BoxDecoration(
@@ -134,7 +131,7 @@ class AllGoalsLogic {
           BoxShadow(color: colorGreenDark.withOpacity(0.15), blurRadius: 12, offset: const Offset(0, 5)),
         ],
         border: Border.all(
-          color: isGoalCompleted ? colorGreenDark : (classificationStyle['color'] ?? colorGreenDark),
+          color: isGoalCompleted ? colorGreenDark : colorGreenLight,
           width: 2,
         ),
       ),
@@ -206,10 +203,10 @@ class AllGoalsLogic {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: classificationStyle['color']?.withOpacity(0.15) ?? colorPinkish,
+                    color: colorGreenLight.withOpacity(0.35),
                     borderRadius: BorderRadius.circular(15),
                   ),
-                  child: Icon(classificationStyle['icon'] ?? Icons.psychology, color: classificationStyle['color'] ?? colorGreenDark, size: 24),
+                  child: Icon(Icons.flag_rounded, color: colorGreenDark, size: 24),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -217,98 +214,89 @@ class AllGoalsLogic {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        classification.toUpperCase(),
-                        style: TextStyle(color: classificationStyle['color'] ?? colorGreenDark, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        professionalEscalation ? 'Care plan' : 'Your goal',
+                        style: TextStyle(
+                          color: colorGreenDark.withOpacity(0.75),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         goal,
-                        style: TextStyle(color: colorGreenDark, fontSize: 15, fontWeight: FontWeight.w500),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: colorPinkish.withOpacity(0.2), borderRadius: BorderRadius.circular(12)),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.format_quote, size: 18, color: colorGreenDark.withOpacity(0.5)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '"$text"',
-                      style: TextStyle(color: colorGreenDark.withOpacity(0.8), fontSize: 13, fontStyle: FontStyle.italic),
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  flex: 2,
-                  child: Row(
-                    children: [
-                      Icon(Icons.star, color: colorGreenDark, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Activities (5 points each)',
-                          style: TextStyle(color: colorGreenDark, fontSize: 16, fontWeight: FontWeight.bold),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colorGreenDark,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (!isGoalCompleted && !isExpired)
-                  Flexible(
-                    flex: 1,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: colorGreenLight.withOpacity(0.3), borderRadius: BorderRadius.circular(20)),
-                      child: Text(
-                        'Today: $todayCompletedCount/${activities.length}',
-                        style: TextStyle(color: colorGreenDark, fontSize: 12, fontWeight: FontWeight.bold),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: activities.length,
-              itemBuilder: (context, index) {
-                Activity activity = activities[index];
-                return _buildActivityItem(
-                  context,
-                  activity,
-                  analysisId,
-                  index,
-                  isGoalCompleted,
-                  isExpired,
-                  onToggle,
-                );
-              },
-            ),
+            if (!professionalEscalation && activities.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(Icons.star, color: colorGreenDark, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Suggested activities',
+                            style: TextStyle(
+                              color: colorGreenDark,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!isGoalCompleted && !isExpired)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colorGreenLight.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Today: $todayCompletedCount/${activities.length}',
+                        style: TextStyle(
+                          color: colorGreenDark,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: activities.length,
+                itemBuilder: (context, index) {
+                  final Activity activity = activities[index];
+                  return _buildActivityItem(
+                    context,
+                    activity,
+                    analysisId,
+                    index,
+                    isGoalCompleted,
+                    isExpired,
+                    onToggle,
+                  );
+                },
+              ),
+            ],
             if (isGoalCompleted || isExpired)
               Container(
                 margin: const EdgeInsets.only(top: 16),
@@ -350,9 +338,16 @@ class AllGoalsLogic {
     String todayKey = '${now.year}-${now.month}-${now.day}';
     bool isCompletedToday = activity.dailyHistory[todayKey] == true;
     DateTime? lastCompleted = activity.lastCompletedDate;
-    bool canCompleteToday = !isGoalCompleted && !isExpired && !isCompletedToday;
+    final bool canToggleToday = !isGoalCompleted && !isExpired;
 
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: canToggleToday
+            ? () => onToggle(analysisId, index, !isCompletedToday)
+            : null,
+        borderRadius: BorderRadius.circular(15),
+        child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -365,19 +360,19 @@ class AllGoalsLogic {
         children: [
           Row(
             children: [
-              GestureDetector(
-                onTap: canCompleteToday ? () => onToggle(analysisId, index, true) : null,
-                child: Container(
+              Container(
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
                     color: isCompletedToday ? colorGreenDark : Colors.white,
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: canCompleteToday ? colorGreenDark : Colors.grey, width: 2),
+                    border: Border.all(
+                      color: canToggleToday ? colorGreenDark : Colors.grey,
+                      width: 2,
+                    ),
                   ),
                   child: isCompletedToday ? const Icon(Icons.check, color: Colors.white, size: 18) : null,
                 ),
-              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -452,31 +447,11 @@ class AllGoalsLogic {
             ),
         ],
       ),
+        ),
+      ),
     );
   }
 
-  Map<String, dynamic> _getClassificationStyle(String classification) {
-    switch (classification.toLowerCase()) {
-      case 'sleeping disorder':
-        return {'icon': Icons.bedtime_outlined, 'color': const Color(0xFF5C6BC0)};
-      case 'social disorder':
-        return {'icon': Icons.groups_2_outlined, 'color': const Color(0xFF00897B)};
-      case 'obsessive habits':
-        return {'icon': Icons.repeat_rounded, 'color': const Color(0xFF7E57C2)};
-      case 'cognitive disorder':
-        return {'icon': Icons.psychology_outlined, 'color': const Color(0xFF546E7A)};
-      case 'adhd':
-        return {'icon': Icons.bolt_rounded, 'color': const Color(0xFFFFA000)};
-      case 'mood swings':
-        return {'icon': Icons.sentiment_neutral_rounded, 'color': const Color(0xFFEC407A)};
-      case 'mild anger issues':
-        return {'icon': Icons.self_improvement_rounded, 'color': const Color(0xFFE64A19)};
-      case 'professional support referral':
-        return {'icon': Icons.medical_information_outlined, 'color': const Color(0xFFB71C1C)};
-      default:
-        return {'icon': Icons.psychology, 'color': colorGreenDark};
-    }
-  }
 }
 
 class Activity {

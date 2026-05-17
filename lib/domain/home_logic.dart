@@ -43,16 +43,25 @@ class HomeLogic {
     return "";
   }
 
-  bool isActivityCompletedToday(Map<String, dynamic> activity) {
-    DateTime now = DateTime.now();
-    String todayKey = '${now.year}-${now.month}-${now.day}';
+  String todayActivityKey([DateTime? when]) {
+    final DateTime d = when ?? DateTime.now();
+    return '${d.year}-${d.month}-${d.day}';
+  }
 
-    Map<String, dynamic>? dailyHistory = activity['dailyHistory'];
-    if (dailyHistory != null && dailyHistory[todayKey] == true) {
-      return true;
+  bool isActivityCompletedToday(Map<String, dynamic> activity) {
+    final DateTime now = DateTime.now();
+    final String todayKey = todayActivityKey(now);
+
+    final Object? rawHistory = activity['dailyHistory'];
+    if (rawHistory is Map) {
+      final Map<String, dynamic> dailyHistory =
+          Map<String, dynamic>.from(rawHistory);
+      if (dailyHistory[todayKey] == true) {
+        return true;
+      }
     }
 
-    DateTime? lastCompleted = activity['lastCompletedDate'];
+    final DateTime? lastCompleted = _activityLastCompleted(activity);
     if (lastCompleted != null) {
       return lastCompleted.year == now.year &&
           lastCompleted.month == now.month &&
@@ -60,6 +69,30 @@ class HomeLogic {
     }
 
     return false;
+  }
+
+  DateTime? _activityLastCompleted(Map<String, dynamic> activity) {
+    final Object? raw = activity['lastCompletedDate'];
+    if (raw is DateTime) return raw;
+    return null;
+  }
+
+  /// Copy of [activity] with today's completion toggled (for immediate UI feedback).
+  Map<String, dynamic> activityWithToggledTodayCompletion(
+    Map<String, dynamic> activity, {
+    required bool completedToday,
+  }) {
+    final Map<String, dynamic> next =
+        Map<String, dynamic>.from(activity);
+    final Map<String, dynamic> history = Map<String, dynamic>.from(
+      next['dailyHistory'] as Map? ?? <String, dynamic>{},
+    );
+    final String todayKey = todayActivityKey();
+    history[todayKey] = completedToday;
+    next['dailyHistory'] = history;
+    next['completed'] = completedToday;
+    next['lastCompletedDate'] = completedToday ? DateTime.now() : null;
+    return next;
   }
 
   void showDailyLimitMessage(BuildContext context) {

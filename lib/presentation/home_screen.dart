@@ -89,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isSubmittingAnswer = false;
 
   int _unreadNotificationsCount = 0;
+  DateTime? _suppressActivitiesListenerUntil;
 
   @override
   void initState() {
@@ -193,20 +194,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _listenToLatestAnalysis() {
     _data.listenToLatestAnalysis(_userId, (data) {
-      if (data != null && mounted) {
-        setState(() {
-          _currentAnalysisId = data['analysisId'] ?? '';
-          _currentGoal = data['goal'] ?? '';
-          _goalStartDate = data['goalStartDate'];
-          _goalDurationDays = data['goalDurationDays'];
-          _goalExpiryDate = data['goalExpiryDate'];
-          _isGoalCompleted = data['isGoalCompleted'] ?? false;
-          _currentActivities = data['activities'] ?? [];
-          _professionalEscalation = data['professionalEscalation'] == true ||
-              (data['classification']?.toString().toLowerCase().trim() ==
-                  kProfessionalSupportReferralClassification);
-        });
-      }
+      if (data == null || !mounted) return;
+      final bool suppressActivities = _suppressActivitiesListenerUntil != null &&
+          DateTime.now().isBefore(_suppressActivitiesListenerUntil!);
+      setState(() {
+        _currentAnalysisId = data['analysisId'] ?? '';
+        _currentGoal = data['goal'] ?? '';
+        _goalStartDate = data['goalStartDate'];
+        _goalDurationDays = data['goalDurationDays'];
+        _goalExpiryDate = data['goalExpiryDate'];
+        _isGoalCompleted = data['isGoalCompleted'] ?? false;
+        if (!suppressActivities) {
+          final List<dynamic> rawActivities = data['activities'] as List<dynamic>? ?? [];
+          _currentActivities = rawActivities
+              .map((dynamic item) => Map<String, dynamic>.from(item as Map))
+              .toList();
+        }
+        _professionalEscalation = data['professionalEscalation'] == true ||
+            (data['classification']?.toString().toLowerCase().trim() ==
+                kProfessionalSupportReferralClassification);
+      });
     });
   }
 
@@ -918,38 +925,115 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _toggleActivity(int index) async {
-    if (_userId.isEmpty ||
-        _currentAnalysisId.isEmpty ||
-        _isGoalCompleted ||
-        _professionalEscalation) {
+  String? _activityToggleBlockReason() {
+    if (_userId.isEmpty || _currentAnalysisId.isEmpty) {
+      return 'Please sign in and complete a check-in to track activities.';
+    }
+    if (_professionalEscalation) {
+      return 'Activities are paused for your safety. Please follow the goal message above.';
+    }
+    if (_isGoalCompleted) {
+      return 'This goal is already marked complete.';
+    }
+    return null;
+  }
+
+  void _showActivityFeedback(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        backgroundColor: isError ? Colors.red.shade700 : const Color(0xff7f9461),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        duration: Duration(seconds: isError ? 4 : 2),
+      ),
+    );
+  }
+
+  Future<void> _applyGardenCareBoost() async {
+    final int newVitality = await _gardenCareData.recordActivityCareBoost(_userId);
+    if (!mounted) return;
+    setState(() => _gardenVitality = newVitality);
+  }
+
+  Future<void> _toggleActivity(int index) async {
+    final String? blockReason = _activityToggleBlockReason();
+    if (blockReason != null) {
+      _showActivityFeedback(blockReason, isError: true);
+      return;
+    }
+    if (index < 0 || index >= _currentActivities.length) {
       return;
     }
 
-    final activity = _currentActivities[index];
+    final Map<String, dynamic> activity =
+        Map<String, dynamic>.from(_currentActivities[index]);
     final bool wasCompletedToday = _logic.isActivityCompletedToday(activity);
-    final DateTime now = DateTime.now();
-    final String todayKey = '${now.year}-${now.month}-${now.day}';
+    final String todayKey = _logic.todayActivityKey();
     final bool wasTouchedToday =
         (activity['dailyHistory'] as Map<String, dynamic>?)?.containsKey(todayKey) ??
             false;
+    final bool completedNow = !wasCompletedToday;
+    final int points = (activity['points'] as num?)?.toInt() ?? 5;
+    final int delta = wasCompletedToday ? -points : points;
 
-    final success = await _data.toggleActivity(_userId, _currentAnalysisId, index, activity);
+    _suppressActivitiesListenerUntil =
+        DateTime.now().add(const Duration(seconds: 4));
 
-    if (success && mounted) {
-      final int points = (activity['points'] as num?)?.toInt() ?? 5;
-      final int delta = wasCompletedToday ? -points : points;
-      int newVitality = _gardenVitality;
-      if (!wasCompletedToday && !wasTouchedToday) {
-        newVitality = await _gardenCareData.recordActivityCareBoost(_userId);
-      }
-      if (!mounted) return;
+    final List<Map<String, dynamic>> updatedActivities =
+        List<Map<String, dynamic>>.from(_currentActivities);
+    updatedActivities[index] = _logic.activityWithToggledTodayCompletion(
+      activity,
+      completedToday: completedNow,
+    );
+
+    setState(() {
+      _currentActivities = updatedActivities;
+      _userPoints = (_userPoints + delta).clamp(0, 1 << 31);
+    });
+
+    final bool success = await _data.toggleActivity(
+      _userId,
+      _currentAnalysisId,
+      index,
+      activity,
+    );
+
+    if (!mounted) return;
+
+    if (!success) {
+      _suppressActivitiesListenerUntil = null;
+      final List<Map<String, dynamic>> reverted =
+          List<Map<String, dynamic>>.from(_currentActivities);
+      reverted[index] = _logic.activityWithToggledTodayCompletion(
+        activity,
+        completedToday: wasCompletedToday,
+      );
       setState(() {
-        _userPoints = (_userPoints + delta).clamp(0, 1 << 31);
-        _gardenVitality = newVitality;
+        _currentActivities = reverted;
+        _userPoints = (_userPoints - delta).clamp(0, 1 << 31);
       });
-      await GardenCareNotificationCoordinator().syncForUser(_userId);
+      _showActivityFeedback(
+        'Could not save this activity. Check your connection and try again.',
+        isError: true,
+      );
+      return;
     }
+
+    _suppressActivitiesListenerUntil =
+        DateTime.now().add(const Duration(milliseconds: 600));
+
+    if (completedNow && !wasTouchedToday) {
+      unawaited(_applyGardenCareBoost());
+    }
+    unawaited(GardenCareNotificationCoordinator().syncForUser(_userId));
   }
 
   void _onItemTapped(int index) {
@@ -1668,13 +1752,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  bool _canToggleActivitiesToday() {
+    return _activityToggleBlockReason() == null;
+  }
+
   Widget _buildActivityItem(int index) {
     final activity = _currentActivities[index];
     final isCompletedToday = _logic.isActivityCompletedToday(activity);
-    final lastCompleted = activity['lastCompletedDate'] as DateTime?;
-    final canToggleToday = !_isGoalCompleted;
+    final DateTime? lastCompleted = activity['lastCompletedDate'] is DateTime
+        ? activity['lastCompletedDate'] as DateTime
+        : null;
+    final bool canToggleToday = _canToggleActivitiesToday();
 
-    return Container(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: canToggleToday ? () => unawaited(_toggleActivity(index)) : null,
+        borderRadius: BorderRadius.circular(15),
+        child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1690,23 +1785,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         children: [
           Row(
             children: [
-              GestureDetector(
-                onTap: canToggleToday ? () => _toggleActivity(index) : null,
-                child: Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: isCompletedToday ? const Color(0xff7f9461) : Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: canToggleToday ? const Color(0xff7f9461) : Colors.grey,
-                      width: 2,
-                    ),
+              Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: isCompletedToday ? const Color(0xff7f9461) : Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: canToggleToday ? const Color(0xff7f9461) : Colors.grey,
+                    width: 2,
                   ),
-                  child: isCompletedToday
-                      ? const Icon(Icons.check, color: Colors.white, size: 18)
-                      : null,
                 ),
+                child: isCompletedToday
+                    ? const Icon(Icons.check, color: Colors.white, size: 18)
+                    : null,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1811,6 +1903,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
         ],
+      ),
+        ),
       ),
     );
   }

@@ -26,14 +26,11 @@ class _AllGoalsAndActivitiesPageState extends State<AllGoalsAndActivitiesPage> {
 
   Future<void> _getCurrentUser() async {
     final user = await _data.getCurrentUser();
-    if (user != null) {
-      setState(() {
-        _userId = user['uid'] ?? '';
-        _isLoading = false;
-      });
-    } else {
-      setState(() => _isLoading = false);
-    }
+    if (!mounted) return;
+    setState(() {
+      _userId = user?['uid'] ?? '';
+      _isLoading = false;
+    });
   }
 
   @override

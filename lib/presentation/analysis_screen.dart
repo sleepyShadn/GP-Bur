@@ -86,11 +86,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
 
   Future<void> _getCurrentUser() async {
     final userData = await _data.getCurrentUser();
+    if (!mounted) return;
     if (userData != null) {
       setState(() {
         _userId = userData['uid'] ?? '';
       });
       await _loadUserData();
+      if (!mounted) return;
       await _loadAnalysesData();
     }
   }
@@ -98,15 +100,17 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   Future<void> _loadUserData() async {
     if (_userId.isEmpty) return;
     final points = await _data.loadUserPoints(_userId);
+    if (!mounted) return;
     setState(() => _totalPoints = points);
   }
 
   Future<void> _loadAnalysesData() async {
     if (_userId.isEmpty) return;
+    if (!mounted) return;
     setState(() => _isLoading = true);
 
     if (_startDate == null || _endDate == null) {
-      DateTime now = DateTime.now();
+      final DateTime now = DateTime.now();
       _startDate = DateTime(now.year, now.month, 1);
       _endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
     }
@@ -118,6 +122,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
       _classifications,
     );
 
+    if (!mounted) return;
     setState(() {
       _classificationCounts = result['counts'] ?? {};
       _completedActivities = result['completedActivities'] ?? 0;
@@ -130,24 +135,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
 
   Future<void> _selectDateRange() async {
     final picked = await _logic.selectDateRange(context, _startDate, _endDate);
-    if (picked != null) {
-      setState(() {
-        _startDate = picked.start;
-        _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
-      });
-      await _loadAnalysesData();
-    }
+    if (!mounted || picked == null) return;
+    setState(() {
+      _startDate = picked.start;
+      _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
+    });
+    await _loadAnalysesData();
   }
 
   Future<void> _generatePDFReport() async {
     if (_userId.isEmpty || _allAnalysesData.isEmpty) {
+      if (!mounted) return;
       _logic.showErrorDialog(context, 'No data available to generate report');
       return;
     }
 
+    if (!mounted) return;
     setState(() => _isGeneratingReport = true);
 
-    final userEmail = await _data.getUserEmail();
+    final String userEmail = await _data.getUserEmail() ?? '';
     final pdfFile = await _data.generatePDFReport(
       userEmail,
       _startDate,
@@ -161,6 +167,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
       _allAnalysesData,
     );
 
+    if (!mounted) return;
     setState(() => _isGeneratingReport = false);
 
     if (pdfFile != null) {
@@ -171,6 +178,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   }
 
   void _onItemTapped(int index) {
+    if (!mounted) return;
     setState(() => _selectedIndex = index);
     if (index == 2) {
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));

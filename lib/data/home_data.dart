@@ -866,13 +866,9 @@ Return ONLY valid JSON in this exact format (activities may be []):
       final List<dynamic> activities = List<dynamic>.from(data['activities'] ?? []);
       if (index >= activities.length) return false;
 
-      final Timestamp? expiryTimestamp = data['goalExpiryDate'];
       final bool isGoalCompleted = data['isGoalCompleted'] ?? false;
-      if (expiryTimestamp != null) {
-        final DateTime expiryDate = expiryTimestamp.toDate();
-        if (DateTime.now().isAfter(expiryDate) || isGoalCompleted) {
-          return false;
-        }
+      if (isGoalCompleted) {
+        return false;
       }
 
       final DateTime now = DateTime.now();
