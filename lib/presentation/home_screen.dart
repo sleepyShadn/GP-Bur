@@ -41,10 +41,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late stt.SpeechToText _speech;
   bool _isListening = false;
   bool _speechInitializing = false;
-  /// Last listen params for [listen] (locale optional).
-  String? _voiceLocaleId;
+  /// Ordered locale ids for [listen]; `null` = system default recognizer.
+  List<String?> _voiceLocaleCandidates = <String?>[];
+  int _voiceLocaleCandidateIndex = 0;
   bool _voiceBusyRecoveryInFlight = false;
+  bool _voiceLanguageRetryInFlight = false;
+  bool _voiceServerRetryInFlight = false;
   DateTime? _lastVoiceBusyRecoveryAt;
+  DateTime? _lastVoiceServerRecoveryAt;
+  /// Toggles between cloud and on-device recognition when the engine disconnects.
+  bool _voicePreferOnDevice = false;
+  bool _voiceUseIntentLookup = true;
   final TextEditingController _textController = TextEditingController();
 
   /// Voice-input duration bar (Messenger-style).
@@ -278,9 +285,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return 'Speech recognition needs a network connection. Check your connection and try again.';
       case 'error_busy':
         return 'Speech service is busy. Wait a few seconds, then tap Voice Input again.';
+      case 'error_server':
+      case 'error_server_disconnected':
+        return 'Google speech service disconnected. Check internet / Google app, then tap Voice Input again.';
       case 'error_language_not_supported':
       case 'error_language_unavailable':
-        return 'English speech recognition is not available on this device.';
+        return 'This speech language is not installed on your device. '
+            'Install English under Settings → Google → Voice → Offline speech recognition, '
+            'or type your answer in English.';
       default:
         return 'Voice input issue: $code. Please try again.';
     }
@@ -293,15 +305,142 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _speech.statusListener = _onSpeechEngineStatus;
   }
 
+  bool _isLanguageSpeechError(String code) {
+    return code == 'error_language_not_supported' ||
+        code == 'error_language_unavailable';
+  }
+
+  bool _isServerSpeechError(String code) {
+    return code == 'error_server_disconnected' || code == 'error_server';
+  }
+
+  List<stt.SpeechConfigOption> get _speechInitOptions {
+    final List<stt.SpeechConfigOption> options = <stt.SpeechConfigOption>[
+      stt.SpeechToText.androidNoBluetooth,
+    ];
+    if (_voiceUseIntentLookup) {
+      options.insert(0, stt.SpeechToText.androidIntentLookup);
+    }
+    return options;
+  }
+
+  Future<bool> _ensureSpeechInitialized({bool forceReset = false}) async {
+    if (forceReset) {
+      try {
+        if (_speech.isListening) {
+          await _speech.stop();
+        }
+        await _speech.cancel();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 550));
+    }
+    final bool available = await _speech.initialize(
+      onError: _onSpeechEngineError,
+      onStatus: _onSpeechEngineStatus,
+      options: _speechInitOptions,
+    );
+    _attachSpeechCallbacks();
+    return available;
+  }
+
   void _onSpeechEngineError(SpeechRecognitionError err) {
     if (!mounted) return;
-    _stopVoiceElapsedTicker();
-    setState(() => _isListening = false);
     if (err.errorMsg == 'error_busy') {
       unawaited(_recoverFromSpeechBusyLight());
       return;
     }
+    if (_isServerSpeechError(err.errorMsg)) {
+      unawaited(_handleServerSpeechError());
+      return;
+    }
+    if (_isLanguageSpeechError(err.errorMsg)) {
+      unawaited(_handleLanguageSpeechError());
+      return;
+    }
+    _stopVoiceElapsedTicker();
+    setState(() => _isListening = false);
     _showVoiceSnack(_mapSpeechErrorToMessage(err.errorMsg), isError: true);
+  }
+
+  Future<void> _handleLanguageSpeechError() async {
+    if (!mounted || _voiceLanguageRetryInFlight) return;
+    _voiceLanguageRetryInFlight = true;
+    try {
+      _stopVoiceElapsedTicker();
+      if (mounted) setState(() => _isListening = false);
+      final bool recovered = await _advanceVoiceLocaleAndRetry();
+      if (!mounted) return;
+      if (recovered) {
+        final bool wasListening = _isListening;
+        setState(() => _isListening = true);
+        if (!wasListening) _startVoiceElapsedTicker();
+        return;
+      }
+      _showVoiceSnack(_mapSpeechErrorToMessage('error_language_not_supported'),
+          isError: true);
+    } finally {
+      _voiceLanguageRetryInFlight = false;
+    }
+  }
+
+  Future<void> _handleServerSpeechError() async {
+    if (!mounted || _voiceServerRetryInFlight) return;
+    final DateTime now = DateTime.now();
+    if (_lastVoiceServerRecoveryAt != null &&
+        now.difference(_lastVoiceServerRecoveryAt!) <
+            const Duration(seconds: 10)) {
+      return;
+    }
+    _lastVoiceServerRecoveryAt = now;
+    _voiceServerRetryInFlight = true;
+    try {
+      _stopVoiceElapsedTicker();
+      if (mounted) setState(() => _isListening = false);
+
+      _voicePreferOnDevice = !_voicePreferOnDevice;
+      if (_voiceUseIntentLookup) {
+        _voiceUseIntentLookup = false;
+      }
+
+      await _prepareSpeechEngine(hard: true);
+      if (!mounted) return;
+
+      final bool reinitialized =
+          await _ensureSpeechInitialized(forceReset: true);
+      if (!mounted || !reinitialized) return;
+
+      if (_voiceLocaleCandidateIndex != 0) {
+        _voiceLocaleCandidateIndex = 0;
+      }
+
+      try {
+        await _performSpeechListen();
+      } catch (e, st) {
+        debugPrint('Voice server recovery listen: $e\n$st');
+      }
+
+      if (!mounted) return;
+      if (_speech.isListening) {
+        final bool wasListening = _isListening;
+        setState(() => _isListening = true);
+        if (!wasListening) _startVoiceElapsedTicker();
+        return;
+      }
+
+      final bool localeRetry = await _advanceVoiceLocaleAndRetry();
+      if (!mounted) return;
+      if (localeRetry) {
+        final bool wasListening = _isListening;
+        setState(() => _isListening = true);
+        if (!wasListening) _startVoiceElapsedTicker();
+        return;
+      }
+
+      _showVoiceSnack(_mapSpeechErrorToMessage('error_server_disconnected'),
+          isError: true);
+    } finally {
+      _voiceServerRetryInFlight = false;
+    }
   }
 
   void _onSpeechEngineStatus(String status) {
@@ -345,47 +484,130 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _voiceSoundNorm = n);
   }
 
-  Future<void> _pickVoiceLocaleFromDevice() async {
-    _voiceLocaleId = null;
+  String? get _activeVoiceLocale {
+    if (_voiceLocaleCandidates.isEmpty ||
+        _voiceLocaleCandidateIndex >= _voiceLocaleCandidates.length) {
+      return null;
+    }
+    return _voiceLocaleCandidates[_voiceLocaleCandidateIndex];
+  }
+
+  Future<void> _buildVoiceLocaleCandidates() async {
+    final Set<String?> seen = <String?>{};
+    final List<String?> next = <String?>[];
+
+    void add(String? id) {
+      if (seen.add(id)) next.add(id);
+    }
+
+    bool isEnglish(String localeId) {
+      final String id = localeId.toLowerCase().replaceAll('_', '-');
+      return id == 'en' || id.startsWith('en-');
+    }
+
+    bool matchesTag(String localeId, String tag) {
+      final String a = localeId.toLowerCase().replaceAll('_', '-');
+      final String b = tag.toLowerCase().replaceAll('_', '-');
+      return a == b || a.startsWith('$b-');
+    }
+
+    // System default first — fewer reconnects to Google cloud on session start.
+    add(null);
+
     try {
-      final locales = await _speech.locales();
-      if (locales.isEmpty) return;
+      final List<stt.LocaleName> locales = await _speech.locales();
+      final List<String> ids =
+          locales.map((stt.LocaleName l) => l.localeId).toList();
 
-      bool isEnglish(String localeId) {
-        final String id = localeId.toLowerCase().replaceAll('_', '-');
-        return id == 'en' || id.startsWith('en-');
+      final Locale deviceLocale =
+          WidgetsBinding.instance.platformDispatcher.locale;
+      final String lang = deviceLocale.languageCode.toLowerCase();
+      if (deviceLocale.countryCode != null &&
+          deviceLocale.countryCode!.isNotEmpty) {
+        final String tag =
+            '${deviceLocale.languageCode}_${deviceLocale.countryCode}';
+        for (final String id in ids) {
+          if (matchesTag(id, tag)) {
+            add(id);
+            break;
+          }
+        }
       }
-
-      // Prefer English: mood validation and backend expect English in this flow.
-      String? picked;
-      for (final l in locales) {
-        final String id = l.localeId.toLowerCase().replaceAll('_', '-');
-        if (id == 'en-us') {
-          picked = l.localeId;
+      for (final String id in ids) {
+        if (id.toLowerCase().startsWith(lang)) {
+          add(id);
           break;
         }
       }
-      if (picked == null) {
-        for (final l in locales) {
-          if (isEnglish(l.localeId)) {
-            picked = l.localeId;
+
+      for (final String preferred in <String>['en-US', 'en_US', 'en-GB', 'en']) {
+        for (final String id in ids) {
+          if (matchesTag(id, preferred)) {
+            add(id);
+            break;
+          }
+        }
+        if (next.length >= 3) break;
+      }
+      if (next.length < 3) {
+        for (final String id in ids) {
+          if (isEnglish(id)) {
+            add(id);
             break;
           }
         }
       }
-      if (picked == null) {
-        final String lang = WidgetsBinding
-            .instance.platformDispatcher.locale.languageCode
-            .toLowerCase();
-        for (final l in locales) {
-          if (l.localeId.toLowerCase().startsWith(lang)) {
-            picked = l.localeId;
-            break;
-          }
-        }
-      }
-      _voiceLocaleId = picked ?? locales.first.localeId;
     } catch (_) {}
+
+    if (next.isEmpty) {
+      add(null);
+    }
+
+    _voiceLocaleCandidates = next.take(3).toList(growable: false);
+    _voiceLocaleCandidateIndex = 0;
+  }
+
+  Future<bool> _advanceVoiceLocaleAndRetry() async {
+    if (!mounted || !_speech.isAvailable) return false;
+    final int nextIndex = _voiceLocaleCandidateIndex + 1;
+    if (nextIndex >= _voiceLocaleCandidates.length) {
+      return false;
+    }
+    _voiceLocaleCandidateIndex = nextIndex;
+    await _prepareSpeechEngine(hard: true);
+    if (!mounted) return false;
+    try {
+      await _performSpeechListen();
+    } catch (e, st) {
+      debugPrint('Voice locale retry: $e\n$st');
+      return false;
+    }
+    return _speech.isListening;
+  }
+
+  Future<bool> _tryListenWithLocaleFallback() async {
+    await _buildVoiceLocaleCandidates();
+    for (int i = 0; i < _voiceLocaleCandidates.length; i++) {
+      _voiceLocaleCandidateIndex = i;
+      if (i > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        await _prepareSpeechEngine(hard: true);
+      }
+      if (!mounted) return false;
+      try {
+        await _performSpeechListen();
+      } catch (e, st) {
+        debugPrint('Voice listen attempt $i: $e\n$st');
+      }
+      if (_speech.isListening) {
+        return true;
+      }
+      final String? lastErr = _speech.lastError?.errorMsg;
+      if (lastErr != null && _isServerSpeechError(lastErr)) {
+        break;
+      }
+    }
+    return false;
   }
 
   static String _formatVoiceDuration(Duration d) {
@@ -579,13 +801,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _applyVoiceTextToField(result.recognizedWords);
       },
       onSoundLevelChange: _onVoiceMicLevel,
-      localeId: _voiceLocaleId,
+      localeId: _activeVoiceLocale,
       listenFor: const Duration(minutes: 2),
       pauseFor: const Duration(seconds: 10),
-      listenOptions:  stt.SpeechListenOptions(
+      listenOptions: stt.SpeechListenOptions(
         listenMode: stt.ListenMode.dictation,
         partialResults: true,
         cancelOnError: false,
+        onDevice: _voicePreferOnDevice,
       ),
     );
   }
@@ -618,11 +841,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  bool get _voiceInputSupportedOnPlatform {
+    if (kIsWeb) return false;
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+      case TargetPlatform.iOS:
+        return true;
+      default:
+        return false;
+    }
+  }
+
   Future<void> _toggleVoiceInput() async {
     if (_speechInitializing) return;
 
-    if (kIsWeb) {
-      _showVoiceSnack('Voice input is not available in the web build.', isError: true);
+    if (!_voiceInputSupportedOnPlatform) {
+      _showVoiceSnack(
+        'Voice input works on Android and iOS devices. Use the keyboard here, or run the app on your phone.',
+        isError: true,
+      );
       return;
     }
 
@@ -641,14 +878,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     setState(() => _speechInitializing = true);
     try {
-      final bool available = await _speech.initialize(
-        onError: _onSpeechEngineError,
-        onStatus: _onSpeechEngineStatus,
-        options: <stt.SpeechConfigOption>[
-          stt.SpeechToText.androidIntentLookup,
-        ],
-      );
-      _attachSpeechCallbacks();
+      _voicePreferOnDevice = false;
+      _voiceUseIntentLookup = true;
+      _voiceLocaleCandidateIndex = 0;
+
+      final bool available = await _ensureSpeechInitialized();
 
       if (!available) {
         if (mounted) {
@@ -660,26 +894,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         return;
       }
 
-      await _pickVoiceLocaleFromDevice();
+      var started = await _tryListenWithLocaleFallback();
 
-      Future<bool> tryListenOnce() async {
-        await _performSpeechListen();
-        return _speech.isListening;
-      }
-
-      var started = await tryListenOnce();
       if (!started && mounted) {
-        await _prepareSpeechEngine(hard: false);
-        started = await tryListenOnce();
-      }
-      if (!started && mounted) {
-        await _prepareSpeechEngine(hard: true);
-        started = await tryListenOnce();
+        final String? lastErr = _speech.lastError?.errorMsg;
+        if (lastErr != null && _isServerSpeechError(lastErr)) {
+          await _handleServerSpeechError();
+          started = _speech.isListening;
+        }
       }
 
       if (mounted && !started) {
         _showVoiceSnack(
-          'Could not start listening. Check microphone permission and try again.',
+          'Could not start voice input. Allow microphone, update the Google app, check internet, '
+          'then try again (Settings → Google → Voice → Offline speech → English).',
           isError: true,
         );
       } else if (mounted && started) {
