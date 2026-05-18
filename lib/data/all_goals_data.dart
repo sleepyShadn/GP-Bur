@@ -14,15 +14,22 @@ class AllGoalsData {
     return null;
   }
 
-  Stream<QuerySnapshot> getAnalysesStream(String userId) {
+  Stream<QuerySnapshot<Map<String, dynamic>>> getAnalysesStream(
+    String userId,
+  ) {
     if (userId.isEmpty) {
-      return const Stream.empty();
+      return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
     }
     return _firestore
         .collection('users')
         .doc(userId)
         .collection('analyses')
         .orderBy('timestamp', descending: true)
+        .withConverter<Map<String, dynamic>>(
+          fromFirestore: (DocumentSnapshot<Map<String, dynamic>> snap, _) =>
+              snap.data() ?? <String, dynamic>{},
+          toFirestore: (Map<String, dynamic> data, _) => data,
+        )
         .snapshots();
   }
 

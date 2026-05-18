@@ -2,6 +2,99 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Pre-parsed analysis row for the all-goals list (avoids heavy work in [build]).
+class AnalysisCardModel {
+  AnalysisCardModel({
+    required this.analysisId,
+    required this.goal,
+    required this.professionalEscalation,
+    required this.durationDays,
+    required this.isGoalCompleted,
+    required this.isExpired,
+    required this.analysisDateStr,
+    required this.activities,
+    required this.todayKey,
+  });
+
+  final String analysisId;
+  final String goal;
+  final bool professionalEscalation;
+  final int durationDays;
+  final bool isGoalCompleted;
+  final bool isExpired;
+  final String analysisDateStr;
+  final List<Activity> activities;
+  final String todayKey;
+
+  int get todayCompletedCount =>
+      activities.where((Activity a) => a.isCompletedToday(todayKey)).length;
+
+  static AnalysisCardModel fromFirestore(
+    String analysisId,
+    Map<String, dynamic> data,
+  ) {
+    final DateTime now = DateTime.now();
+    final String todayKey = '${now.year}-${now.month}-${now.day}';
+
+    final Timestamp? expiryTimestamp = data['goalExpiryDate'] as Timestamp?;
+    final int durationDays = (data['goalDurationDays'] as num?)?.toInt() ?? 5;
+    bool isGoalCompleted = data['isGoalCompleted'] == true;
+
+    final DateTime? expiryDate = expiryTimestamp?.toDate();
+    final bool isExpired =
+        expiryDate != null && now.isAfter(expiryDate);
+    if (isExpired && !isGoalCompleted) {
+      isGoalCompleted = true;
+    }
+
+    final List<dynamic> activitiesData =
+        data['activities'] as List<dynamic>? ?? <dynamic>[];
+    final List<Activity> activities = <Activity>[];
+    for (final dynamic raw in activitiesData) {
+      if (raw is! Map) continue;
+      final Map<String, dynamic> act = Map<String, dynamic>.from(raw);
+      activities.add(
+        Activity(
+          title: act['title'] as String? ?? 'Unknown activity',
+          isCompleted: act['completed'] == true,
+          points: (act['points'] as num?)?.toInt() ?? 5,
+          activityId: act['activityId'] as String? ?? '',
+          lastCompletedDate: act['lastCompletedDate'] is Timestamp
+              ? (act['lastCompletedDate'] as Timestamp).toDate()
+              : null,
+          dailyHistory: act['dailyHistory'] is Map
+              ? Map<String, bool>.from(
+                  (act['dailyHistory'] as Map).map(
+                    (dynamic k, dynamic v) =>
+                        MapEntry(k.toString(), v == true),
+                  ),
+                )
+              : <String, bool>{},
+        ),
+      );
+    }
+
+    final Timestamp? timestamp = data['timestamp'] as Timestamp?;
+    String analysisDateStr = '';
+    if (timestamp != null) {
+      final DateTime d = timestamp.toDate();
+      analysisDateStr = '${d.day}/${d.month}/${d.year}';
+    }
+
+    return AnalysisCardModel(
+      analysisId: analysisId,
+      goal: data['goal'] as String? ?? 'No goal set',
+      professionalEscalation: data['professionalEscalation'] == true,
+      durationDays: durationDays,
+      isGoalCompleted: isGoalCompleted,
+      isExpired: isExpired,
+      analysisDateStr: analysisDateStr,
+      activities: activities,
+      todayKey: todayKey,
+    );
+  }
+}
+
 class AllGoalsLogic {
   final Color colorPinkish = const Color(0xFFE7CCCC);
   final Color colorCream = const Color(0xFFEDE8DC);
@@ -75,51 +168,30 @@ class AllGoalsLogic {
     );
   }
 
-  Widget buildAnalysisCard(BuildContext context, Map<String, dynamic> data, Function(String, int, bool) onToggle) {
-    final bool professionalEscalation = data['professionalEscalation'] == true;
-    String goal = data['goal'] ?? 'No goal set';
-    String analysisId = data['analysisId'] ?? '';
+  Widget buildAnalysisCard(
+    BuildContext context,
+    AnalysisCardModel model,
+    void Function(String analysisId, int index, bool newValue) onToggle, {
+    Map<String, bool>? optimisticTodayByKey,
+  }) {
+    final String analysisId = model.analysisId;
+    final String goal = model.goal;
+    final bool professionalEscalation = model.professionalEscalation;
+    final int durationDays = model.durationDays;
+    final bool isGoalCompleted = model.isGoalCompleted;
+    final bool isExpired = model.isExpired;
+    final String analysisDateStr = model.analysisDateStr;
+    final List<Activity> activities = model.activities;
+    final String todayKey = model.todayKey;
+    final int todayCompletedCount = model.todayCompletedCount;
 
-    Timestamp? startTimestamp = data['goalStartDate'];
-    Timestamp? expiryTimestamp = data['goalExpiryDate'];
-    int? durationDays = data['goalDurationDays'] ?? 5;
-    bool isGoalCompleted = data['isGoalCompleted'] ?? false;
-
-    DateTime? expiryDate = expiryTimestamp?.toDate();
-    DateTime now = DateTime.now();
-    bool isExpired = expiryDate != null && now.isAfter(expiryDate);
-
-    if (isExpired && !isGoalCompleted) {
-      isGoalCompleted = true;
-    }
-
-    List<dynamic> activitiesData = data['activities'] ?? [];
-    List<Activity> activities = [];
-
-    for (var act in activitiesData) {
-      activities.add(Activity(
-        title: act['title'] ?? 'Unknown activity',
-        isCompleted: act['completed'] ?? false,
-        points: act['points'] ?? 5,
-        activityId: act['activityId'] ?? '',
-        lastCompletedDate: act['lastCompletedDate'] != null ? (act['lastCompletedDate'] as Timestamp).toDate() : null,
-        dailyHistory: act['dailyHistory'] != null ? Map<String, bool>.from(act['dailyHistory']) : {},
-      ));
-    }
-
-    int todayCompletedCount = 0;
-    String todayKey = '${now.year}-${now.month}-${now.day}';
-    for (var activity in activities) {
-      if (activity.dailyHistory[todayKey] == true) {
-        todayCompletedCount++;
+    bool isCompletedTodayAt(int index) {
+      final String key = '$analysisId-$index';
+      if (optimisticTodayByKey != null && optimisticTodayByKey.containsKey(key)) {
+        return optimisticTodayByKey[key]!;
       }
-    }
-
-    Timestamp? timestamp = data['timestamp'];
-    String analysisDateStr = '';
-    if (timestamp != null) {
-      DateTime analysisDate = timestamp.toDate();
-      analysisDateStr = '${analysisDate.day}/${analysisDate.month}/${analysisDate.year}';
+      if (index >= activities.length) return false;
+      return activities[index].isCompletedToday(todayKey);
     }
 
     return Container(
@@ -279,23 +351,17 @@ class AllGoalsLogic {
                 ],
               ),
               const SizedBox(height: 12),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: activities.length,
-                itemBuilder: (context, index) {
-                  final Activity activity = activities[index];
-                  return _buildActivityItem(
-                    context,
-                    activity,
-                    analysisId,
-                    index,
-                    isGoalCompleted,
-                    isExpired,
-                    onToggle,
-                  );
-                },
-              ),
+              for (int index = 0; index < activities.length; index++)
+                _buildActivityItem(
+                  context,
+                  activities[index],
+                  analysisId,
+                  index,
+                  isGoalCompleted,
+                  isExpired,
+                  onToggle,
+                  isCompletedToday: isCompletedTodayAt(index),
+                ),
             ],
             if (isGoalCompleted || isExpired)
               Container(
@@ -326,18 +392,16 @@ class AllGoalsLogic {
   }
 
   Widget _buildActivityItem(
-      BuildContext context,
-      Activity activity,
-      String analysisId,
-      int index,
-      bool isGoalCompleted,
-      bool isExpired,
-      Function(String, int, bool) onToggle,
-      ) {
-    DateTime now = DateTime.now();
-    String todayKey = '${now.year}-${now.month}-${now.day}';
-    bool isCompletedToday = activity.dailyHistory[todayKey] == true;
-    DateTime? lastCompleted = activity.lastCompletedDate;
+    BuildContext context,
+    Activity activity,
+    String analysisId,
+    int index,
+    bool isGoalCompleted,
+    bool isExpired,
+    void Function(String, int, bool) onToggle, {
+    required bool isCompletedToday,
+  }) {
+    final DateTime? lastCompleted = activity.lastCompletedDate;
     final bool canToggleToday = !isGoalCompleted && !isExpired;
 
     return Material(
@@ -470,4 +534,6 @@ class Activity {
     this.lastCompletedDate,
     required this.dailyHistory,
   });
+
+  bool isCompletedToday(String todayKey) => dailyHistory[todayKey] == true;
 }
