@@ -54,6 +54,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
 
   DateTime? _startDate;
   DateTime? _endDate;
+  DateTime? _registrationDate;
 
   int _totalPoints = 0;
   int _completedActivities = 0;
@@ -100,8 +101,43 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   Future<void> _loadUserData() async {
     if (_userId.isEmpty) return;
     final points = await _data.loadUserPoints(_userId);
+    final DateTime? registeredAt =
+        await _data.loadUserRegistrationDate(_userId);
     if (!mounted) return;
-    setState(() => _totalPoints = points);
+    setState(() {
+      _totalPoints = points;
+      _registrationDate = registeredAt;
+    });
+  }
+
+  void _clampDateRangeToRegistration() {
+    if (_registrationDate == null ||
+        _startDate == null ||
+        _endDate == null) {
+      return;
+    }
+    final DateTime reg = DateTime(
+      _registrationDate!.year,
+      _registrationDate!.month,
+      _registrationDate!.day,
+    );
+    if (_startDate!.isBefore(reg)) {
+      _startDate = reg;
+    }
+    final DateTime today = DateTime.now();
+    if (_endDate!.isAfter(today)) {
+      _endDate = DateTime(today.year, today.month, today.day, 23, 59, 59);
+    }
+    if (_endDate!.isBefore(_startDate!)) {
+      _endDate = DateTime(
+        _startDate!.year,
+        _startDate!.month,
+        _startDate!.day,
+        23,
+        59,
+        59,
+      );
+    }
   }
 
   Future<void> _loadAnalysesData() async {
@@ -114,6 +150,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
       _startDate = DateTime(now.year, now.month, 1);
       _endDate = DateTime(now.year, now.month, now.day, 23, 59, 59);
     }
+    _clampDateRangeToRegistration();
 
     final result = await _data.loadAnalysesData(
       _userId,
@@ -134,12 +171,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> with SingleTickerProvider
   }
 
   Future<void> _selectDateRange() async {
-    final picked = await _logic.selectDateRange(context, _startDate, _endDate);
+    final picked = await _logic.selectDateRange(
+      context,
+      _startDate,
+      _endDate,
+      registrationDate: _registrationDate,
+    );
     if (!mounted || picked == null) return;
     setState(() {
       _startDate = picked.start;
-      _endDate = DateTime(picked.end.year, picked.end.month, picked.end.day, 23, 59, 59);
+      _endDate = DateTime(
+        picked.end.year,
+        picked.end.month,
+        picked.end.day,
+        23,
+        59,
+        59,
+      );
     });
+    _clampDateRangeToRegistration();
     await _loadAnalysesData();
   }
 

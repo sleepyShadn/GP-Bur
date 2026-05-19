@@ -1,6 +1,7 @@
 // ========== lib/data/shop_data.dart ==========
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../domain/garden_logic.dart';
 import '../domain/shop_logic.dart';
 
 class ShopData {
@@ -39,15 +40,7 @@ class ShopData {
           ? Map<String, dynamic>.from(data['seedsInventory'] as Map<String, dynamic>)
           : <String, dynamic>{};
 
-      final Map<String, int> parsed = <String, int>{};
-      rawInventory.forEach((String key, dynamic value) {
-        if (value is int) {
-          parsed[key] = value;
-        } else if (value is num) {
-          parsed[key] = value.toInt();
-        }
-      });
-      return parsed;
+      return GardenLogic.parseSeedsInventory(rawInventory);
     } catch (e) {
       print('Error loading inventory: $e');
       return <String, int>{};
@@ -74,7 +67,7 @@ class ShopData {
           'Regular Seeds': 0,
           'Rare Seeds': 0,
           'Legendary Seeds': 0,
-          'Growth Accelerator': 0,
+          GardenLogic.fertilizerInventoryKey: 0,
         };
       }
 

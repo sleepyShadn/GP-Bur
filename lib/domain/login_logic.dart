@@ -6,6 +6,7 @@ class LoginLogic {
   final Color colorCream = const Color(0xFFEDE8DC);
   final Color colorGreenDark = const Color(0xFFA5B68D);
   final Color colorGreenLight = const Color(0xFFC1CFA1);
+  final Color colorBrown = const Color(0xFF5C4018);
 
   bool isValidEmail(String email) {
     return RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(email);

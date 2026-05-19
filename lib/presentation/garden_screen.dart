@@ -29,10 +29,10 @@ class _GardenPageState extends State<GardenPage> {
   final GardenCareData _gardenCareData = GardenCareData();
 
   int _selectedIndex = 0;
-  String gardenName = 'My Secret Garden';
+  String gardenName = GardenLogic.defaultGardenName;
   bool isEditingName = false;
   late TextEditingController _nameController;
-  String currentSeason = 'Spring';
+  String currentSeason = GardenLogic.defaultSeason;
 
   String _userId = '';
   int points = 0;
@@ -47,6 +47,7 @@ class _GardenPageState extends State<GardenPage> {
 
   @override
   void dispose() {
+    _data.cancelPointsListener();
     _nameController.dispose();
     super.dispose();
   }
@@ -55,6 +56,9 @@ class _GardenPageState extends State<GardenPage> {
     final user = await _data.getCurrentUser();
     if (user != null) {
       setState(() => _userId = user['uid'] ?? '');
+      _data.listenToUserPoints(_userId, (int p) {
+        if (mounted) setState(() => points = p);
+      });
       _loadUserData();
     }
   }
@@ -64,9 +68,17 @@ class _GardenPageState extends State<GardenPage> {
     final int v = await _gardenCareData.loadAndReconcileVitality(_userId);
     if (!mounted) return;
     if (data != null) {
+      final String? savedName = data['gardenName'] as String?;
+      final String savedSeason =
+          GardenLogic.normalizeSeason(data['gardenSeason'] as String?);
       setState(() {
         points = data['points'] ?? 0;
         _gardenVitality = v;
+        if (savedName != null && savedName.trim().isNotEmpty) {
+          gardenName = savedName.trim();
+          _nameController.text = gardenName;
+        }
+        currentSeason = savedSeason;
       });
     } else {
       setState(() => _gardenVitality = v);
@@ -101,20 +113,44 @@ class _GardenPageState extends State<GardenPage> {
     );
   }
 
-  void _editGardenName() {
-    final result = _logic.validateGardenName(_nameController.text.trim());
+  Future<void> _editGardenName() async {
+    final String trimmed = _nameController.text.trim();
+    final result = _logic.validateGardenName(trimmed);
     if (result != null) {
       _showSnackBar(result, Colors.red);
       return;
     }
+    if (_userId.isEmpty) {
+      _showSnackBar('Please log in first', Colors.red);
+      return;
+    }
 
     setState(() {
-      gardenName = _nameController.text.trim();
+      gardenName = trimmed;
       isEditingName = false;
     });
 
-    _showSnackBar('Garden Name updated successfully', const Color(0xff7f9461));
-    _data.updateGardenName(_userId, gardenName);
+    try {
+      await _data.updateGardenName(_userId, gardenName);
+      if (!mounted) return;
+      _showSnackBar('Garden name saved', const Color(0xff7f9461));
+    } catch (e) {
+      if (!mounted) return;
+      _showSnackBar('Could not save garden name', Colors.red);
+    }
+  }
+
+  Future<void> _selectSeason(String season) async {
+    if (season == currentSeason || _userId.isEmpty) return;
+    final String previous = currentSeason;
+    setState(() => currentSeason = season);
+    try {
+      await _data.updateGardenSeason(_userId, season);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => currentSeason = previous);
+      _showSnackBar('Could not save season', Colors.red);
+    }
   }
 
   void _onItemTapped(int index) {
@@ -140,7 +176,8 @@ class _GardenPageState extends State<GardenPage> {
       Color(0xFFE8F2E3),
       Color(0xFFD1E2CF),
     ];
-    const String farmThumb = 'assets/images/watering/watering_bg_spring.png';
+    final String farmThumb = _logic.seasonalBackgroundAsset(currentSeason) ??
+        'assets/images/watering/watering_bg_spring.png';
     final double vitalityFade =
         (1.0 - (_gardenVitality.clamp(0, 100) / 100.0)) * 0.26;
 
@@ -202,6 +239,8 @@ class _GardenPageState extends State<GardenPage> {
                             ),
                           ),
                         ),
+                        const SizedBox(height: 14),
+                        _buildSeasonPicker(seasonColor),
                         const SizedBox(height: 18),
                         _buildSeedFarmEntryCard(seasonColor),
                         const SizedBox(height: 22),
@@ -480,6 +519,86 @@ class _GardenPageState extends State<GardenPage> {
     );
   }
 
+  Widget _buildSeasonPicker(Color accent) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 10),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Garden season',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Colors.brown.shade700,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: GardenLogic.validSeasons.map((String season) {
+                final bool selected = currentSeason == season;
+                return Material(
+                  color: selected
+                      ? accent.withValues(alpha: 0.22)
+                      : const Color(0xFFF5F0E6),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    onTap: () => _selectSeason(season),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: selected ? accent : const Color(0xFFD4A574),
+                          width: selected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _logic.getSeasonIconForPicker(season),
+                            size: 18,
+                            color: selected ? accent : Colors.brown.shade500,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            season,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: selected
+                                  ? const Color(0xFF4A3728)
+                                  : Colors.brown.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSeedFarmEntryCard(Color accent) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -693,12 +812,16 @@ class _GardenPageState extends State<GardenPage> {
                   emoji: '🧺',
                   title: 'Harvest Run',
                   tagline: 'Fill basket orders from the field before time runs out.',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (BuildContext context) => const HarvestRunScreen(),
-                    ),
-                  ),
+                  onTap: () async {
+                    await Navigator.push<int>(
+                      context,
+                      MaterialPageRoute<int>(
+                        builder: (BuildContext context) =>
+                            const HarvestRunScreen(),
+                      ),
+                    );
+                    if (mounted) await _loadUserData();
+                  },
                 ),
                 const SizedBox(width: 14),
                 _buildDistinctGameCard(
@@ -711,12 +834,16 @@ class _GardenPageState extends State<GardenPage> {
                   emoji: '💧',
                   title: 'Watering Flowers',
                   tagline: 'Water, feed, and care for every plant on time.',
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (BuildContext context) => const WateringFlowersScreen(),
-                    ),
-                  ),
+                  onTap: () async {
+                    await Navigator.push<int>(
+                      context,
+                      MaterialPageRoute<int>(
+                        builder: (BuildContext context) =>
+                            const WateringFlowersScreen(),
+                      ),
+                    );
+                    if (mounted) await _loadUserData();
+                  },
                 ),
               ],
             ),

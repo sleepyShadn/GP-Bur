@@ -96,16 +96,16 @@ class _LoginState extends State<Login> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
         ),
-        title: const Icon(
+        title: Icon(
           Icons.check_circle_outline,
-          color: Color(0xFFA5B68D),
+          color: _logic.colorBrown,
           size: 60,
         ),
-        content: const Text(
-          "wellcome back !",
+        content: Text(
+          "Welcome back!",
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: Color(0xFFA5B68D),
+            color: _logic.colorBrown,
             fontSize: 24,
             fontWeight: FontWeight.bold,
           ),
@@ -121,10 +121,10 @@ class _LoginState extends State<Login> {
                       (route) => false,
                 );
               },
-              child: const Text(
+              child: Text(
                 'Continue',
                 style: TextStyle(
-                  color: Color(0xFFA5B68D),
+                  color: _logic.colorBrown,
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),

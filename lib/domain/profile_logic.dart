@@ -6,6 +6,8 @@ class ProfileLogic {
   final Color colorCream = const Color(0xFFEDE8DC);
   final Color colorGreenDark = const Color(0xff7f9461);
   final Color colorGreenLight = const Color(0xFFC1CFA1);
+  final Color colorBrown = const Color(0xFF5C4018);
+  final Color colorBrownDark = const Color(0xFF4A3728);
 
   String? validateName(String value) {
     if (value.trim().isEmpty) return 'Name cannot be empty';

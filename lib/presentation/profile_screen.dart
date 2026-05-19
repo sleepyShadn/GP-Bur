@@ -827,7 +827,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: const Color(0xff7f9461),
+                  color: _logic.colorBrown,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -835,7 +835,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
             ),
             if (!isEditing)
               IconButton(
-                icon: const Icon(Icons.edit_outlined, color: Color(0xff7f9461)),
+                icon: Icon(Icons.edit_outlined, color: _logic.colorBrown),
                 onPressed: _toggleEditMode,
                 tooltip: 'Edit Profile',
               ),
@@ -846,7 +846,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
                 tooltip: 'Cancel',
               ),
               IconButton(
-                icon: const Icon(Icons.save, color: Color(0xff7f9461)),
+                icon: Icon(Icons.save, color: _logic.colorBrown),
                 onPressed: _updateUserData,
                 tooltip: 'Save',
               ),
@@ -864,12 +864,13 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFEDE8DC).withOpacity(0.7),
+        color: _logic.colorBrown.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _logic.colorBrown.withOpacity(0.2)),
       ),
       child: Row(
         children: [
-          Icon(Icons.access_time, color: const Color(0xff7f9461), size: 16),
+          Icon(Icons.access_time, color: _logic.colorBrown, size: 16),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -877,7 +878,7 @@ class _ProfilePageState extends State<ProfilePage> with SingleTickerProviderStat
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: const Color(0xff7f9461),
+                color: _logic.colorBrown,
                 fontStyle: FontStyle.italic,
               ),
               maxLines: 2,

@@ -109,6 +109,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _userId.isNotEmpty) {
       unawaited(_loadGardenCare());
+      unawaited(_loadUserPoints());
     }
   }
 
@@ -138,6 +139,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _userId = user['uid'] ?? '';
       });
       _loadUserPoints();
+      _data.listenToUserPoints(_userId, (int points) {
+        if (mounted) setState(() => _userPoints = points);
+      });
       _loadProfileImage();
       _checkTodayAnalysisCount();
       _listenToLatestAnalysis();
@@ -936,23 +940,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 _buildSectionTitle(
                   icon: Icons.psychology_alt_outlined,
                   title: 'Daily Check-in',
+                  accentColor: _logic.colorBrown,
                 ),
                 const SizedBox(height: 10),
-                const Text(
+                Text(
                   "How are you",
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xff7f9461),
+                    color: _logic.colorBrown,
                     height: 1.1,
                   ),
                 ),
-                const Text(
+                Text(
                   "feeling today?",
                   style: TextStyle(
                     fontSize: 30,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xff7f9461),
+                    color: _logic.colorBrown,
                     height: 1.1,
                   ),
                 ),
@@ -1310,19 +1315,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     margin: const EdgeInsets.only(bottom: 20),
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: _isGoalCompleted
-                          ? const Color(0xff7f9461).withOpacity(0.3)
-                          : const Color(0xFFC1CFA1).withOpacity(0.3),
+                      color: _logic.colorBrown.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(15),
                       border: Border.all(
-                        color: _isGoalCompleted ? const Color(0xff7f9461) : const Color(0xFFC1CFA1),
+                        color: _logic.colorBrown.withOpacity(0.35),
                         width: 1,
                       ),
                     ),
                     child: Text(
                       _logic.getGoalStatusMessage(_isGoalCompleted, _goalExpiryDate),
                       style: TextStyle(
-                        color: _isGoalCompleted ? const Color(0xff7f9461) : const Color(0xff7f9461),
+                        color: _logic.colorBrown,
                         fontWeight: FontWeight.bold,
                         fontSize: 15,
                       ),
@@ -1806,22 +1809,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildSectionTitle({required IconData icon, required String title}) {
+  Widget _buildSectionTitle({
+    required IconData icon,
+    required String title,
+    Color? accentColor,
+  }) {
+    final Color accent = accentColor ?? const Color(0xff7f9461);
     return Row(
       children: [
         Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: const Color(0xff7f9461).withOpacity(0.14),
+            color: accent.withOpacity(0.14),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, color: const Color(0xff7f9461), size: 18),
+          child: Icon(icon, color: accent, size: 18),
         ),
         const SizedBox(width: 10),
         Text(
           title,
-          style: const TextStyle(
-            color: Color(0xff7f9461),
+          style: TextStyle(
+            color: accent,
             fontSize: 16,
             fontWeight: FontWeight.w800,
             letterSpacing: 0.2,
@@ -1838,11 +1846,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         color: Colors.white.withOpacity(0.82),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: const Color(0xff5f7744).withOpacity(0.15),
+          color: _logic.colorBrown.withOpacity(0.2),
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xff5f7744).withOpacity(0.12),
+            color: _logic.colorBrown.withOpacity(0.12),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
@@ -1854,7 +1862,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: const Color(0xffe2efda),
+              color: _logic.colorBrown.withOpacity(0.1),
               borderRadius: BorderRadius.circular(14),
             ),
             child: ClipRRect(
@@ -1863,15 +1871,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ? Image.memory(
                       _profileImageBytes()!,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
+                      errorBuilder: (_, __, ___) => Icon(
                         Icons.person_rounded,
-                        color: Color(0xff4f6a3d),
+                        color: _logic.colorBrownDark,
                         size: 23,
                       ),
                     )
-                  : const Icon(
+                  : Icon(
                       Icons.person_rounded,
-                      color: Color(0xff4f6a3d),
+                      color: _logic.colorBrownDark,
                       size: 23,
                     ),
             ),
@@ -1883,8 +1891,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               children: [
                 Text(
                   _logic.getWelcomeMessage(''),
-                  style: const TextStyle(
-                    color: Color(0xff4f6a3d),
+                  style: TextStyle(
+                    color: _logic.colorBrown,
                     fontWeight: FontWeight.w700,
                     fontSize: 14,
                   ),
@@ -1894,7 +1902,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   Text(
                     "Today's entries: $_todayAnalysisCount/2",
                     style: TextStyle(
-                      color: const Color(0xff4f6a3d).withOpacity(0.85),
+                      color: _logic.colorBrown.withOpacity(0.85),
                       fontSize: 10.5,
                       fontWeight: FontWeight.w600,
                     ),

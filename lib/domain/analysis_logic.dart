@@ -17,18 +17,48 @@ class AnalysisLogic {
   }
 
   Future<DateTimeRange?> selectDateRange(
-      BuildContext context,
-      DateTime? startDate,
-      DateTime? endDate,
-      ) async {
-    DateTime now = DateTime.now();
+    BuildContext context,
+    DateTime? startDate,
+    DateTime? endDate, {
+    DateTime? registrationDate,
+  }) async {
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    final DateTime firstDate = registrationDate != null
+        ? DateTime(
+            registrationDate.year,
+            registrationDate.month,
+            registrationDate.day,
+          )
+        : DateTime(2020);
+
+    DateTimeRange initialRange;
+    if (startDate != null && endDate != null) {
+      DateTime rangeStart = DateTime(
+        startDate.year,
+        startDate.month,
+        startDate.day,
+      );
+      DateTime rangeEnd = DateTime(
+        endDate.year,
+        endDate.month,
+        endDate.day,
+      );
+      if (rangeStart.isBefore(firstDate)) rangeStart = firstDate;
+      if (rangeEnd.isAfter(today)) rangeEnd = today;
+      if (rangeEnd.isBefore(rangeStart)) rangeEnd = rangeStart;
+      initialRange = DateTimeRange(start: rangeStart, end: rangeEnd);
+    } else {
+      DateTime monthStart = DateTime(now.year, now.month, 1);
+      if (monthStart.isBefore(firstDate)) monthStart = firstDate;
+      initialRange = DateTimeRange(start: monthStart, end: today);
+    }
+
     return await showDateRangePicker(
       context: context,
-      firstDate: DateTime(2020),
-      lastDate: now,
-      initialDateRange: startDate != null && endDate != null
-          ? DateTimeRange(start: startDate, end: endDate)
-          : DateTimeRange(start: DateTime(now.year, now.month, 1), end: now),
+      firstDate: firstDate,
+      lastDate: today,
+      initialDateRange: initialRange,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(

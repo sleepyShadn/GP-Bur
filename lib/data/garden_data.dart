@@ -1,4 +1,6 @@
 // ========== lib/data/garden_data.dart ==========
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,8 @@ import '../presentation/garden_planted_item.dart';
 class GardenData {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+      _pointsSubscription;
 
   Future<Map<String, dynamic>?> getCurrentUser() async {
     User? user = _auth.currentUser;
@@ -27,20 +31,18 @@ class GardenData {
           'Regular Seeds': 2,
           'Rare Seeds': 2,
           'Legendary Seeds': 2,
-          'Growth Accelerator': 1,
+          GardenLogic.fertilizerInventoryKey: 1,
         };
         if (data.containsKey('seedsInventory')) {
-          Map<String, dynamic> inventory = Map<String, dynamic>.from(data['seedsInventory']);
-          seedsInventory = {
-            'Regular Seeds': inventory['Regular Seeds']?.toInt() ?? 0,
-            'Rare Seeds': inventory['Rare Seeds']?.toInt() ?? 0,
-            'Legendary Seeds': inventory['Legendary Seeds']?.toInt() ?? 0,
-            'Growth Accelerator': inventory['Growth Accelerator']?.toInt() ?? 0,
-          };
+          final Map<String, dynamic> inventory =
+              Map<String, dynamic>.from(data['seedsInventory'] as Map);
+          seedsInventory = GardenLogic.parseSeedsInventory(inventory);
         }
         return {
           'points': data['points'] ?? 0,
           'seedsInventory': seedsInventory,
+          'gardenName': data['gardenName'] as String?,
+          'gardenSeason': data['gardenSeason'] as String?,
         };
       }
     } catch (e) {
@@ -188,5 +190,35 @@ class GardenData {
         'gardenName': name,
       });
     }
+  }
+
+  Future<void> updateGardenSeason(String userId, String season) async {
+    if (userId.isNotEmpty) {
+      await _firestore.collection('users').doc(userId).update({
+        'gardenSeason': season,
+      });
+    }
+  }
+
+  void listenToUserPoints(String userId, void Function(int points) onPoints) {
+    _pointsSubscription?.cancel();
+    if (userId.isEmpty) return;
+    _pointsSubscription = _firestore
+        .collection('users')
+        .doc(userId)
+        .snapshots()
+        .listen(
+      (DocumentSnapshot<Map<String, dynamic>> doc) {
+        final int points = (doc.data()?['points'] as num?)?.toInt() ?? 0;
+        onPoints(points);
+      },
+      onError: (Object error) {
+        print('Error listening to garden points: $error');
+      },
+    );
+  }
+
+  void cancelPointsListener() {
+    _pointsSubscription?.cancel();
   }
 }

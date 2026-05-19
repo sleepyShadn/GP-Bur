@@ -34,13 +34,6 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
   final GardenCareData _gardenCareData = GardenCareData();
   final GardenAudioService _audio = GardenAudioService();
   late final GardenFlameWorld _flameWorld;
-  final List<String> _seasonCycle = <String>[
-    'Spring',
-    'Summer',
-    'Autumn',
-    'Winter'
-  ];
-  Timer? _seasonCycleTimer;
 
   String _userId = '';
   int _points = 0;
@@ -54,7 +47,7 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
     'Regular Seeds': 2,
     'Rare Seeds': 2,
     'Legendary Seeds': 2,
-    'Growth Accelerator': 1,
+    GardenLogic.fertilizerInventoryKey: 1,
   };
 
   /// World canvas (pan only). Layout inspired by classic isometric farm games.
@@ -124,7 +117,6 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
         setState(() {});
       }
     });
-    _startAutoSeasonCycle();
     _bootstrap();
   }
 
@@ -139,18 +131,6 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-  }
-
-  void _startAutoSeasonCycle() {
-    _seasonCycleTimer?.cancel();
-    _seasonCycleTimer = Timer.periodic(const Duration(seconds: 45), (_) {
-      if (!mounted) return;
-      final int currentIndex = _seasonCycle.indexOf(_currentSeason);
-      final int nextIndex = (currentIndex + 1) % _seasonCycle.length;
-      setState(() {
-        _currentSeason = _seasonCycle[nextIndex];
-      });
-    });
   }
 
   @override
@@ -191,7 +171,6 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    _seasonCycleTimer?.cancel();
     _audio.dispose();
     SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
       DeviceOrientation.portraitUp,
@@ -348,7 +327,7 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
     }
   }
 
-  Future<void> _useGrowthAccelerator() async {
+  Future<void> _useFertilizer() async {
     if (_plantedItems.isEmpty) {
       _snack('No plants to accelerate', Colors.orange);
       return;
@@ -364,8 +343,8 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       );
       return;
     }
-    if ((_seedsInventory['Growth Accelerator'] ?? 0) <= 0) {
-      _snack('No Growth Accelerator in inventory.', Colors.orange);
+    if ((_seedsInventory[GardenLogic.fertilizerInventoryKey] ?? 0) <= 0) {
+      _snack('No Fertilizer in inventory.', Colors.orange);
       return;
     }
     try {
@@ -389,8 +368,8 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       }
       if (!mounted) return;
       setState(() {
-        _seedsInventory['Growth Accelerator'] =
-            _seedsInventory['Growth Accelerator']! - 1;
+        _seedsInventory[GardenLogic.fertilizerInventoryKey] =
+            _seedsInventory[GardenLogic.fertilizerInventoryKey]! - 1;
         for (final PlantedItem item in growing) {
           final DateTime? t = applied[item.docId];
           if (t != null) {
@@ -400,11 +379,11 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       });
       await _data.updateSeedsInventory(
         _userId,
-        'Growth Accelerator',
-        _seedsInventory['Growth Accelerator']!,
+        GardenLogic.fertilizerInventoryKey,
+        _seedsInventory[GardenLogic.fertilizerInventoryKey]!,
       );
       _snack(
-        'Growth boost: each growing plant skipped ~1 day of grow time. Keep up daily care for vitality!',
+        'Fertilizer applied: each growing plant skipped ~1 day of grow time. Keep up daily care for vitality!',
         const Color(0xff7f9461),
         icon: Icons.bolt_rounded,
       );
@@ -413,8 +392,8 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       }
       await _refreshGardenCareState();
     } catch (e) {
-      debugPrint('Error using accelerator: $e');
-      _snack('Error using accelerator', Colors.red);
+      debugPrint('Error using fertilizer: $e');
+      _snack('Error using fertilizer', Colors.red);
     }
   }
 
@@ -1101,13 +1080,15 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
               ),
               const SizedBox(width: 6),
               _toolButton(
-                icon: Icons.bolt_rounded,
-                label: 'Boost',
-                count: _seedsInventory['Growth Accelerator'] ?? 0,
-                enabled: (_seedsInventory['Growth Accelerator'] ?? 0) > 0,
+                icon: Icons.eco_outlined,
+                label: 'Fertilizer',
+                count: _seedsInventory[GardenLogic.fertilizerInventoryKey] ?? 0,
+                enabled:
+                    (_seedsInventory[GardenLogic.fertilizerInventoryKey] ?? 0) >
+                        0,
                 selected: false,
                 color: const Color(0xFFEF8B17),
-                onTap: _useGrowthAccelerator,
+                onTap: _useFertilizer,
               ),
               const SizedBox(width: 6),
               _miniToolIcon(
@@ -1124,7 +1105,7 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
             child: Row(
               children: _seedsInventory.entries
                   .where((MapEntry<String, int> e) =>
-                      e.key != 'Growth Accelerator')
+                      e.key != GardenLogic.fertilizerInventoryKey)
                   .map((MapEntry<String, int> e) => Padding(
                         padding: const EdgeInsets.only(right: 8),
                         child: _seedChip(e.key, e.value),

@@ -2,6 +2,17 @@
 import 'package:flutter/material.dart';
 
 class GardenLogic {
+  static const String fertilizerInventoryKey = 'Fertilizer';
+  static const String legacyGrowthAcceleratorKey = 'Growth Accelerator';
+  static const String defaultGardenName = 'My Secret Garden';
+  static const String defaultSeason = 'Spring';
+  static const List<String> validSeasons = <String>[
+    'Spring',
+    'Summer',
+    'Autumn',
+    'Winter',
+  ];
+
   final Color colorPinkish = const Color(0xFFE7CCCC);
   final Color colorCream = const Color(0xFFEDE8DC);
   final Color colorGreenDark = const Color(0xff7f9461);
@@ -33,9 +44,36 @@ class GardenLogic {
   static const int rareGrowSeconds = 259200; // 3 days
   static const int legendaryGrowSeconds = 604800; // 7 days
 
-  /// One use of Growth Accelerator: advances real growth by this many seconds (≈ one day),
+  /// One use of Fertilizer: advances real growth by this many seconds (≈ one day),
   /// capped by actual time left — does not replace daily care / vitality.
   static const int growthAcceleratorAdvanceSeconds = 86400;
+
+  static String normalizeSeason(String? season) {
+    if (season != null && validSeasons.contains(season)) {
+      return season;
+    }
+    return defaultSeason;
+  }
+
+  static int _inventoryCount(Map<String, dynamic>? inventory, String key) {
+    if (inventory == null) return 0;
+    final dynamic value = inventory[key];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
+  /// Reads seeds inventory and merges legacy Growth Accelerator into Fertilizer.
+  static Map<String, int> parseSeedsInventory(Map<String, dynamic>? inventory) {
+    final int fertilizer = _inventoryCount(inventory, fertilizerInventoryKey) +
+        _inventoryCount(inventory, legacyGrowthAcceleratorKey);
+    return <String, int>{
+      'Regular Seeds': _inventoryCount(inventory, 'Regular Seeds'),
+      'Rare Seeds': _inventoryCount(inventory, 'Rare Seeds'),
+      'Legendary Seeds': _inventoryCount(inventory, 'Legendary Seeds'),
+      fertilizerInventoryKey: fertilizer,
+    };
+  }
 
   int getSeedDuration(String seedType) {
     if (seedType.contains('Regular')) return regularGrowSeconds;
@@ -74,8 +112,13 @@ class GardenLogic {
       return {'color': Colors.blue, 'icon': Icons.spa, 'displayName': 'Rare'};
     } else if (seedType == 'Legendary Seeds') {
       return {'color': Colors.purple, 'icon': Icons.spa, 'displayName': 'Legendary'};
-    } else if (seedType == 'Growth Accelerator') {
-      return {'color': Colors.orange, 'icon': Icons.bolt, 'displayName': 'Accelerator'};
+    } else if (seedType == fertilizerInventoryKey ||
+        seedType == legacyGrowthAcceleratorKey) {
+      return {
+        'color': Colors.orange,
+        'icon': Icons.eco_outlined,
+        'displayName': 'Fertilizer',
+      };
     } else {
       return {'color': Colors.green, 'icon': Icons.spa, 'displayName': 'Regular'};
     }

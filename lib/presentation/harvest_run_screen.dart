@@ -44,6 +44,8 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
 
   int _maxUnlocked = 1;
   int _sessionPoints = 0;
+  /// Farm coins credited to the wallet this session (shown on Home/Garden).
+  int _walletPointsSession = 0;
   int _timeLeft = 0;
   int _orderIndex = 0;
   /// Required crops for the current order (until delivered).
@@ -154,12 +156,8 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     await _showClosingOverlay();
     _requestAudioShutdown();
 
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-
     if (partial > 0 && _userId != null) {
-      unawaited(_data.saveScoreToFirebase(
+      await _data.saveScoreToFirebase(
         _userId!,
         partial,
         picks,
@@ -168,7 +166,12 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
         title,
         timeSnap,
         levelId: levelId,
-      ));
+      );
+      _walletPointsSession += partial;
+    }
+
+    if (mounted) {
+      Navigator.of(context).pop(_walletPointsSession);
     }
   }
 
@@ -487,7 +490,10 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     if (won) {
       awardMeta =
           4 + stars * 2 + (c.id ~/ 2) + (net ~/ 14).clamp(0, 24);
-      setState(() => _sessionPoints += awardMeta);
+      setState(() {
+        _sessionPoints += awardMeta;
+        _walletPointsSession += awardMeta;
+      });
       final int nextId = c.id + 1;
       if (nextId <= HarvestRunData.levels.length) {
         await _data.saveMaxUnlockedLevel(nextId);
@@ -528,7 +534,7 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     if (!mounted) return;
 
     final bool hasNext = c.id < HarvestRunData.levels.length;
-    await _showRoundDialog(
+    final bool? continuePlaying = await _showRoundDialog(
       won: won,
       title: won
           ? (hasNext
@@ -546,9 +552,14 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
       timeLeft: timeSnap,
       timeTotal: c.seconds,
       hasNext: hasNext,
+      walletPointsAwarded: won ? awardMeta : 0,
     );
 
     if (!mounted) return;
+    if (continuePlaying != true) {
+      await _exitAfterRoundDialog();
+      return;
+    }
 
     if (won) {
       if (hasNext) {
@@ -564,7 +575,60 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     _startLevel(c);
   }
 
-  Future<void> _showRoundDialog({
+  Future<void> _exitAfterRoundDialog() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    _tickTimer?.cancel();
+    _advanceBannerTimer?.cancel();
+    _gameActive = false;
+    _tractorPassCtrl.stop();
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    await _showClosingOverlay();
+    _requestAudioShutdown();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(_walletPointsSession);
+    }
+  }
+
+  Future<void> _promptEndRoundEarly() async {
+    if (!_gameActive || _config == null) return;
+    final bool? end = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFEDE8DC),
+        title: const Text(
+          'End this round?',
+          style: TextStyle(color: Color(0xff7f9461), fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'You will finish the current round as incomplete. You can retry or exit from the results screen.',
+          style: TextStyle(color: Color(0xff7f9461)),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Keep playing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'End round',
+              style: TextStyle(
+                color: Color(0xFFB71C1C),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (end == true && mounted) {
+      unawaited(_finishRound(won: false));
+    }
+  }
+
+  /// Returns `true` to continue/retry, `false` to exit the game.
+  Future<bool?> _showRoundDialog({
     required bool won,
     required String title,
     required String subtitle,
@@ -574,8 +638,13 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
     required int timeLeft,
     required int timeTotal,
     required bool hasNext,
+    int walletPointsAwarded = 0,
   }) async {
-    await showDialog<void>(
+    final String primaryLabel = won
+        ? (hasNext ? 'Continue' : 'Play again from round 1')
+        : 'Retry this round';
+
+    return showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext ctx) => Dialog(
@@ -668,11 +737,23 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                  if (won && walletPointsAwarded > 0) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Text(
+                      '+$walletPointsAwarded farm coins added to your wallet',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFFFFD166),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
+                      onPressed: () => Navigator.of(ctx).pop(true),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFFFD166),
                         foregroundColor: const Color(0xFF2A3A4F),
@@ -682,11 +763,33 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
                         ),
                       ),
                       child: Text(
-                        won
-                            ? (hasNext ? 'Continue' : 'Play again from round 1')
-                            : 'Retry this round',
+                        primaryLabel,
                         style: const TextStyle(
                           fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFF8FBFF),
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.45),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      child: const Text(
+                        'Exit',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
                           fontSize: 15,
                         ),
                       ),
@@ -1249,6 +1352,11 @@ class _HarvestRunScreenState extends State<HarvestRunScreen>
                               : Icons.pause_rounded,
                           onTap: _togglePause,
                           tip: _paused ? 'Resume' : 'Pause',
+                        ),
+                        _miniIcon(
+                          icon: Icons.flag_rounded,
+                          onTap: _promptEndRoundEarly,
+                          tip: 'End round',
                         ),
                       ],
                     ),

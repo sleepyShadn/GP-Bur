@@ -43,6 +43,25 @@ class AnalysisData {
     }
   }
 
+  /// Account signup date (start of day) — used to limit analytics date range.
+  Future<DateTime?> loadUserRegistrationDate(String userId) async {
+    if (userId.isEmpty) return null;
+    try {
+      final DocumentSnapshot userDoc =
+          await _firestore.collection('users').doc(userId).get();
+      if (!userDoc.exists) return null;
+      final dynamic createdAt =
+          (userDoc.data() as Map<String, dynamic>?)?['createdAt'];
+      if (createdAt is Timestamp) {
+        final DateTime d = createdAt.toDate();
+        return DateTime(d.year, d.month, d.day);
+      }
+    } catch (e) {
+      print('Error loading registration date: $e');
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> loadAnalysesData(
       String userId,
       DateTime startDate,

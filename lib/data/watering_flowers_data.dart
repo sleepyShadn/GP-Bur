@@ -1,4 +1,6 @@
 // ========== lib/data/watering_flowers_data.dart ==========
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
@@ -202,6 +204,7 @@ class WateringFlowersData {
     await p.setBool(_kReduceMotion, value);
   }
 
+  /// Credits wallet points immediately, then writes stats/history in the background.
   Future<void> saveScoreToFirebase(
     String userId,
     int pointsEarned,
@@ -215,13 +218,45 @@ class WateringFlowersData {
     double? waterRemainingRatio,
   }) async {
     try {
-      final userRef = _firestore.collection('users').doc(userId);
-      final gameStatsRef = _firestore.collection('game_stats').doc(userId);
-
       if (pointsEarned > 0) {
-        await userRef.update({'points': FieldValue.increment(pointsEarned)});
+        await _firestore.collection('users').doc(userId).update({
+          'points': FieldValue.increment(pointsEarned),
+        });
+        debugPrint('Watering wallet +$pointsEarned');
       }
+      unawaited(
+        _persistWateringStatsAndHistory(
+          userId: userId,
+          pointsEarned: pointsEarned,
+          flowersWatered: flowersWatered,
+          totalFlowers: totalFlowers,
+          won: won,
+          difficulty: difficulty,
+          timeLeft: timeLeft,
+          levelId: levelId,
+          stars: stars,
+          waterRemainingRatio: waterRemainingRatio,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error saving score: $e');
+    }
+  }
 
+  Future<void> _persistWateringStatsAndHistory({
+    required String userId,
+    required int pointsEarned,
+    required int flowersWatered,
+    required int totalFlowers,
+    required bool won,
+    required String difficulty,
+    required int timeLeft,
+    int? levelId,
+    int? stars,
+    double? waterRemainingRatio,
+  }) async {
+    try {
+      final gameStatsRef = _firestore.collection('game_stats').doc(userId);
       final gameStatsDoc = await gameStatsRef.get();
 
       if (gameStatsDoc.exists) {
@@ -265,12 +300,8 @@ class WateringFlowersData {
           'waterRemainingRatio': waterRemainingRatio,
         'playedAt': FieldValue.serverTimestamp(),
       });
-
-      if (pointsEarned > 0) {
-        debugPrint('Score saved successfully: $pointsEarned points');
-      }
     } catch (e) {
-      debugPrint('Error saving score: $e');
+      debugPrint('Watering stats/history error: $e');
     }
   }
 }

@@ -1,4 +1,6 @@
 // ========== lib/data/harvest_run_data.dart ==========
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
@@ -385,6 +387,7 @@ class HarvestRunData {
     if (levelId > cur) await p.setInt(_kUnlocked, levelId);
   }
 
+  /// Credits wallet points immediately, then writes stats/history in the background.
   Future<void> saveScoreToFirebase(
     String userId,
     int pointsEarned,
@@ -396,15 +399,41 @@ class HarvestRunData {
     int? levelId,
   }) async {
     try {
-      final userRef = _firestore.collection('users').doc(userId);
-      final gameStatsRef = _firestore.collection('game_stats').doc(userId);
-
       if (pointsEarned > 0) {
-        await userRef.update(<String, dynamic>{
+        await _firestore.collection('users').doc(userId).update(<String, dynamic>{
           'points': FieldValue.increment(pointsEarned),
         });
+        debugPrint('Harvest Run wallet +$pointsEarned');
       }
+      unawaited(
+        _persistHarvestStatsAndHistory(
+          userId: userId,
+          pointsEarned: pointsEarned,
+          picksCompleted: picksCompleted,
+          orderLength: orderLength,
+          won: won,
+          roundTitle: roundTitle,
+          timeLeft: timeLeft,
+          levelId: levelId,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Harvest Run save error: $e');
+    }
+  }
 
+  Future<void> _persistHarvestStatsAndHistory({
+    required String userId,
+    required int pointsEarned,
+    required int picksCompleted,
+    required int orderLength,
+    required bool won,
+    required String roundTitle,
+    required int timeLeft,
+    int? levelId,
+  }) async {
+    try {
+      final gameStatsRef = _firestore.collection('game_stats').doc(userId);
       final gameStatsDoc = await gameStatsRef.get();
 
       if (gameStatsDoc.exists) {
@@ -443,12 +472,8 @@ class HarvestRunData {
         if (levelId != null) 'levelId': levelId,
         'playedAt': FieldValue.serverTimestamp(),
       });
-
-      if (pointsEarned > 0) {
-        debugPrint('Harvest Run score saved: $pointsEarned');
-      }
     } catch (e) {
-      debugPrint('Harvest Run save error: $e');
+      debugPrint('Harvest Run stats/history error: $e');
     }
   }
 }

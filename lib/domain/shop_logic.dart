@@ -44,11 +44,11 @@ class ShopLogic {
       inventoryKey: 'Legendary Seeds',
     ),
     ShopItem(
-      name: 'Growth Accelerator',
+      name: 'Fertilizer',
       description:
           'Organic boost: each plant skips forward about one day of real grow time (not instant). Daily activities still shape garden vitality.',
       price: 35,
-      inventoryKey: 'Growth Accelerator',
+      inventoryKey: 'Fertilizer',
     ),
   ];
 
@@ -60,8 +60,8 @@ class ShopLogic {
         return Icons.eco;
       case 'Legendary Seeds':
         return Icons.diamond_rounded;
-      case 'Growth Accelerator':
-        return Icons.speed;
+      case 'Fertilizer':
+        return Icons.eco_outlined;
       default:
         return Icons.inventory_2;
     }

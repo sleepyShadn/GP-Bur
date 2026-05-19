@@ -29,7 +29,7 @@ class RegisterData {
           'Regular Seeds': 0,
           'Rare Seeds': 0,
           'Legendary Seeds': 0,
-          'Growth Accelerator': 0,
+          'Fertilizer': 0,
         },
       });
 

@@ -47,6 +47,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
 
   int _maxUnlocked = 1;
   int _sessionPoints = 0;
+  int _walletPointsSession = 0;
   int _timeLeft = 0;
   double _waterRemaining = 0;
   bool _reduceMotion = false;
@@ -456,6 +457,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
           4 + stars * 2 + (cfg.id ~/ 2) + (netPoints ~/ 12).clamp(0, 28);
       setState(() {
         _sessionPoints += awardPoints;
+        _walletPointsSession += awardPoints;
       });
       final int nextId = cfg.id + 1;
       if (nextId <= WateringFlowersData.levels.length) {
@@ -502,7 +504,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     final bool hasNext = cfg.id < WateringFlowersData.levels.length;
     final WateringLevelConfig? nextCfg =
         hasNext ? WateringFlowersData.levelById(cfg.id + 1) : null;
-    await _showRoundEndDialog(
+    final bool? continuePlaying = await _showRoundEndDialog(
       timeUp: timeUp,
       won: won,
       levelTitle: 'Stage ${cfg.id} · ${cfg.levelTitle}',
@@ -524,9 +526,14 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
       clearedStageId: cfg.id,
       nextRoundId: won && hasNext ? cfg.id + 1 : null,
       nextPlantCount: won && nextCfg != null ? nextCfg.plantCount : null,
+      walletPointsAwarded: won ? awardPoints : 0,
     );
 
     if (!mounted) return;
+    if (continuePlaying != true) {
+      await _exitAfterRoundDialog();
+      return;
+    }
 
     if (won) {
       if (hasNext) {
@@ -545,7 +552,8 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     _startLevel(cfg);
   }
 
-  Future<void> _showRoundEndDialog({
+  /// Returns `true` to continue/retry, `false` to exit the game.
+  Future<bool?> _showRoundEndDialog({
     required bool timeUp,
     required bool won,
     required String levelTitle,
@@ -565,8 +573,9 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     required int clearedStageId,
     int? nextRoundId,
     int? nextPlantCount,
+    int walletPointsAwarded = 0,
   }) async {
-    if (!mounted) return;
+    if (!mounted) return null;
     final int playedSec =
         (timeTotalSec - timeLeftSec).clamp(0, timeTotalSec).toInt();
     final String headline = won
@@ -574,9 +583,13 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
             ? 'Stage $clearedStageId cleared — next: Round $nextRoundId'
             : 'All stages cleared — epic run!')
         : (timeUp ? "Time's up" : 'All plants wilted');
-    final String buttonLabel = won ? 'Play again' : 'Retry this round';
+    final String primaryLabel = won
+        ? (hasNextLevel && nextRoundId != null
+            ? 'Continue'
+            : 'Play again from round 1')
+        : 'Retry this round';
 
-    await showDialog<void>(
+    return showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => Dialog(
@@ -853,11 +866,23 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (won && walletPointsAwarded > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        '+$walletPointsAwarded farm coins added to your wallet',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Color(0xFFFFD166),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
+                        onPressed: () => Navigator.of(ctx).pop(true),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFFFD166),
                           foregroundColor: const Color(0xFF2A3A4F),
@@ -869,11 +894,35 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                           shadowColor: Colors.black.withValues(alpha: 0.25),
                         ),
                         child: Text(
-                          buttonLabel,
+                          primaryLabel,
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 16,
                             letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFF8FBFF),
+                          side: BorderSide(
+                            color: Colors.white.withValues(alpha: 0.45),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        child: const Text(
+                          'Exit',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
                           ),
                         ),
                       ),
@@ -1021,6 +1070,66 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     );
   }
 
+  Future<void> _exitAfterRoundDialog() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    _tickTimer?.cancel();
+    _tapFeedbackTimer?.cancel();
+    _waterSprayTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _isGameActive = false;
+        _isPaused = false;
+        _focusedPlantIndex = null;
+      });
+    }
+    await _gardenAudio.stopGardenIntroRoundStartCue();
+    await _gardenAudio.stopGardenCareBgm();
+    if (mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(_walletPointsSession);
+    }
+  }
+
+  Future<void> _promptEndRoundEarly() async {
+    if (!_isGameActive || _config == null) return;
+    final bool? end = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        backgroundColor: _logic.colorCream,
+        title: Text(
+          'End this round?',
+          style: TextStyle(
+            color: _logic.colorGreenDark,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        content: Text(
+          'You will finish the current round now. From the results screen you can retry or exit.',
+          style: TextStyle(color: _logic.colorGreenDark.withValues(alpha: 0.9)),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Keep playing', style: TextStyle(color: _logic.colorGreenDark)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'End round',
+              style: TextStyle(
+                color: Color(0xFFB71C1C),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (end == true && mounted) {
+      unawaited(_finishGame(timeUp: false));
+    }
+  }
+
   Future<void> _confirmExitGame() async {
     if (_isExiting) return;
     _isExiting = true;
@@ -1037,7 +1146,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     await _gardenAudio.stopGardenIntroRoundStartCue();
     await _gardenAudio.stopGardenCareBgm();
     if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(_walletPointsSession);
     }
   }
 
@@ -1128,6 +1237,11 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                               : Icons.pause_rounded,
                           onPressed: _togglePause,
                           tooltip: _isPaused ? 'Resume' : 'Pause',
+                        ),
+                        _hudMiniIcon(
+                          icon: Icons.flag_rounded,
+                          onPressed: _promptEndRoundEarly,
+                          tooltip: 'End round',
                         ),
                       ],
                     ),
