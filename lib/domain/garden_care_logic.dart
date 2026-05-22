@@ -20,6 +20,9 @@ class GardenCareReconcileResult {
 }
 
 class GardenCareLogic {
+  /// Stored when the user has never completed a home activity (not “acted today”).
+  static const String neverActivityDayKey = '2000-01-01';
+
   static const int defaultVitality = 94;
   static const int activityBoost = 16;
   static const int plantCareBoost = 4;
@@ -32,14 +35,37 @@ class GardenCareLogic {
   static DateTime _dateOnly(DateTime d) =>
       DateTime(d.year, d.month, d.day);
 
+  static bool isValidCareDayKey(String? key) {
+    if (key == null || key.isEmpty || key == neverActivityDayKey) {
+      return false;
+    }
+    final List<String> parts = key.split('-');
+    if (parts.length != 3) return false;
+    return int.tryParse(parts[0]) != null &&
+        int.tryParse(parts[1]) != null &&
+        int.tryParse(parts[2]) != null;
+  }
+
   static DateTime dateFromCareDayKey(String key) {
-    final parts = key.split('-');
-    if (parts.length != 3) return _dateOnly(DateTime.now());
+    if (!isValidCareDayKey(key)) {
+      return DateTime(2000, 1, 1);
+    }
+    final List<String> parts = key.split('-');
     return DateTime(
-      int.tryParse(parts[0]) ?? DateTime.now().year,
-      int.tryParse(parts[1]) ?? 1,
-      int.tryParse(parts[2]) ?? 1,
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
     );
+  }
+
+  /// Calendar days between last completed activity and [todayKey] (yyyy-m-d).
+  static int daysSinceLastActivity(String lastActivityDayKey, String todayKey) {
+    if (!isValidCareDayKey(lastActivityDayKey)) {
+      return 999;
+    }
+    final DateTime last = dateFromCareDayKey(lastActivityDayKey);
+    final DateTime today = dateFromCareDayKey(todayKey);
+    return today.difference(last).inDays.clamp(0, 9999);
   }
 
   static GardenVitalityTier tierFromVitality(int vitality) {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../domain/garden_care_logic.dart';
@@ -62,12 +63,15 @@ class NotificationService {
   }
 
   static const List<int> gardenCareNotificationIds = <int>[
+    9199,
     9200,
     9201,
     9202,
     9203,
     9204,
   ];
+
+  static const String _prefGardenNudgeDayPrefix = 'garden_care_nudge_day_';
 
   Future<void> initNotifications(String userId) async {
     _inboxUserId = userId;
@@ -289,6 +293,10 @@ class NotificationService {
     final String todayKey = GardenCareLogic.careDayKey(DateTime.now());
     final bool actedToday = lastActivityDayKey == todayKey;
     final bool healthy = actedToday && vitality >= 68;
+    final int daysSinceActivity = GardenCareLogic.daysSinceLastActivity(
+      lastActivityDayKey,
+      todayKey,
+    );
 
     if (healthy) {
       return;
@@ -308,7 +316,10 @@ class NotificationService {
       String title,
       String body,
     ) async {
-      if (!when.isAfter(now.add(const Duration(seconds: 20)))) return;
+      if (!when.isAfter(now.add(const Duration(seconds: 20)))) {
+        debugPrint('garden schedule skip id=$id (in past): $when');
+        return;
+      }
       try {
         await _localNotifications.zonedSchedule(
           id: id,
@@ -316,16 +327,49 @@ class NotificationService {
           body: body,
           scheduledDate: when,
           notificationDetails: details,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
           payload: payloadOpenNotificationsInbox,
         );
+        debugPrint('garden schedule ok id=$id at $when');
       } catch (e) {
         debugPrint('zonedSchedule id=$id error: $e');
+        try {
+          await _localNotifications.zonedSchedule(
+            id: id,
+            title: title,
+            body: body,
+            scheduledDate: when,
+            notificationDetails: details,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            payload: payloadOpenNotificationsInbox,
+          );
+        } catch (e2) {
+          debugPrint('zonedSchedule fallback id=$id error: $e2');
+        }
+      }
+    }
+
+    // One gentle nudge soon after sync (max once per calendar day per user).
+    if (!actedToday || daysSinceActivity >= 1) {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String nudgeKey = '$_prefGardenNudgeDayPrefix$userId';
+      final String? lastNudgeDay = prefs.getString(nudgeKey);
+      if (lastNudgeDay != todayKey) {
+        await prefs.setString(nudgeKey, todayKey);
+        final tz.TZDateTime soon = now.add(const Duration(minutes: 4));
+        await scheduleIfFuture(
+          9199,
+          soon,
+          'Your garden misses you',
+          daysSinceActivity >= 2
+              ? 'It has been a few days without an activity. One small habit today lifts vitality (now $vitality%). $plantLine'
+              : 'Vitality is $vitality%. Complete one small activity today to keep your garden growing. $plantLine',
+        );
       }
     }
 
     if (!actedToday || vitality < 72) {
-      final tz.TZDateTime evening = _todayAt(19, 30);
+      final tz.TZDateTime evening = _nextOccurrence(19, 30, now);
       await scheduleIfFuture(
         9200,
         evening,
@@ -336,8 +380,9 @@ class NotificationService {
       );
     }
 
-    if (vitality < 50) {
-      final tz.TZDateTime lunch = _todayAt(13, 15);
+    // Midday reminder when vitality is moderate-low (covers ~52%) or no activity today.
+    if (vitality < 56 || (!actedToday && vitality < 72)) {
+      final tz.TZDateTime lunch = _nextOccurrence(13, 15, now);
       await scheduleIfFuture(
         9201,
         lunch,
@@ -346,7 +391,7 @@ class NotificationService {
       );
     }
 
-    final tz.TZDateTime tomorrowAm = _offsetDayAt(1, 9, 35);
+    final tz.TZDateTime tomorrowAm = _offsetDayAt(1, 9, 35, now);
     await scheduleIfFuture(
       9202,
       tomorrowAm,
@@ -357,7 +402,7 @@ class NotificationService {
     );
 
     if (!actedToday || vitality < 62) {
-      final tz.TZDateTime tomorrowPm = _offsetDayAt(1, 19, 15);
+      final tz.TZDateTime tomorrowPm = _offsetDayAt(1, 19, 15, now);
       await scheduleIfFuture(
         9203,
         tomorrowPm,
@@ -366,8 +411,8 @@ class NotificationService {
       );
     }
 
-    if (vitality < 42) {
-      final tz.TZDateTime day2 = _offsetDayAt(2, 14, 45);
+    if (vitality < 45 || daysSinceActivity >= 2) {
+      final tz.TZDateTime day2 = _offsetDayAt(2, 14, 45, now);
       await scheduleIfFuture(
         9204,
         day2,
@@ -399,9 +444,9 @@ class NotificationService {
     return const NotificationDetails(android: android, iOS: ios);
   }
 
-  tz.TZDateTime _todayAt(int hour, int minute) {
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
-    return tz.TZDateTime(
+  /// Next local [hour]:[minute] — today if still in the future, otherwise tomorrow.
+  tz.TZDateTime _nextOccurrence(int hour, int minute, tz.TZDateTime now) {
+    tz.TZDateTime candidate = tz.TZDateTime(
       tz.local,
       now.year,
       now.month,
@@ -409,10 +454,18 @@ class NotificationService {
       hour,
       minute,
     );
+    if (!candidate.isAfter(now.add(const Duration(seconds: 20)))) {
+      candidate = candidate.add(const Duration(days: 1));
+    }
+    return candidate;
   }
 
-  tz.TZDateTime _offsetDayAt(int daysFromToday, int hour, int minute) {
-    final tz.TZDateTime now = tz.TZDateTime.now(tz.local);
+  tz.TZDateTime _offsetDayAt(
+    int daysFromToday,
+    int hour,
+    int minute,
+    tz.TZDateTime now,
+  ) {
     final tz.TZDateTime base = tz.TZDateTime(
       tz.local,
       now.year,

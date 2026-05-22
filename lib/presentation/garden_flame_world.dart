@@ -32,6 +32,9 @@ class GardenFlameWorld extends FlameGame {
   Offset _cameraOffset = Offset.zero;
   Offset _cameraVelocity = Offset.zero;
   bool _cameraAnchoredToNpc = false;
+
+  /// Drives Flutter overlays (plants/trees) so they stay locked to world coords.
+  final ValueNotifier<Offset> cameraListenable = ValueNotifier<Offset>(Offset.zero);
   String _season = 'Spring';
   List<PlantedItem> _plants = <PlantedItem>[];
   double _time = 0;
@@ -40,6 +43,12 @@ class GardenFlameWorld extends FlameGame {
 
   int get _tileCount => cropCols * cropRows;
   Offset get cameraOffset => _cameraOffset;
+
+  void _publishCamera() {
+    if (cameraListenable.value != _cameraOffset) {
+      cameraListenable.value = _cameraOffset;
+    }
+  }
 
   static const List<double> _cloudBaseX = <double>[40, 260, 540, 840, 1080];
   static const List<double> _cloudBaseY = <double>[82, 110, 72, 126, 90];
@@ -68,6 +77,7 @@ class GardenFlameWorld extends FlameGame {
     } else {
       _cameraOffset = _clampOffset(_cameraOffset);
     }
+    _publishCamera();
   }
 
   void setScene({
@@ -85,6 +95,7 @@ class GardenFlameWorld extends FlameGame {
     );
     _cameraOffset = _clampOffset(next);
     _cameraVelocity = Offset(-delta.dx * 26, -delta.dy * 26);
+    _publishCamera();
   }
 
   void handleTap(Offset localPosition) {
@@ -102,6 +113,7 @@ class GardenFlameWorld extends FlameGame {
       _cameraOffset = _clampOffset(moved);
       final double decay = math.pow(0.9, dt * 60).toDouble();
       _cameraVelocity = _cameraVelocity * decay;
+      _publishCamera();
     }
     for (final _HarvestBurst b in _harvestBursts) {
       b.life += dt;

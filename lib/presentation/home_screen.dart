@@ -145,8 +145,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _loadProfileImage();
       _checkTodayAnalysisCount();
       _listenToLatestAnalysis();
-      await _loadGardenCare();
       await _initNotifications();
+      await _loadGardenCare();
       _listenUnreadNotificationsCount();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _userId.isEmpty) return;

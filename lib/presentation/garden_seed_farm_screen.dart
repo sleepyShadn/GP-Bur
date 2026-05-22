@@ -170,6 +170,7 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
 
   @override
   void dispose() {
+    _flameWorld.cameraListenable.dispose();
     _timer?.cancel();
     _audio.dispose();
     SystemChrome.setPreferredOrientations(const <DeviceOrientation>[
@@ -849,14 +850,12 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       builder: (BuildContext context, BoxConstraints constraints) {
         _flameWorld
             .setViewport(Size(constraints.maxWidth, constraints.maxHeight));
-        final Offset cam = _flameWorld.cameraOffset;
         return Stack(
           children: [
             Positioned.fill(
               child: GestureDetector(
                 onPanUpdate: (DragUpdateDetails details) {
                   _flameWorld.panBy(details.delta);
-                  setState(() {});
                 },
                 onTapUp: (TapUpDetails details) =>
                     _flameWorld.handleTap(details.localPosition),
@@ -868,9 +867,22 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
                 child: CustomPaint(painter: _GardenBalancePainter()),
               ),
             ),
-            ..._buildTreeLottieOverlays(cam),
+            ValueListenableBuilder<Offset>(
+              valueListenable: _flameWorld.cameraListenable,
+              builder: (BuildContext context, Offset cam, Widget? child) {
+                return Transform.translate(
+                  offset: Offset(-cam.dx, -cam.dy),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: <Widget>[
+                      ..._buildTreeLottieOverlaysWorld(),
+                      ..._buildPlantGrowthOverlaysWorld(),
+                    ],
+                  ),
+                );
+              },
+            ),
             if (_currentSeason == 'Autumn') _buildAutumnFallingLeavesLayer(),
-            ..._buildPlantGrowthOverlays(cam),
           ],
         );
       },
@@ -897,7 +909,7 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
     );
   }
 
-  List<Widget> _buildTreeLottieOverlays(Offset cam) {
+  List<Widget> _buildTreeLottieOverlaysWorld() {
     final List<Offset> treeWorld = <Offset>[
       const Offset(96, 465),
       const Offset(1020, 488),
@@ -905,10 +917,9 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
       const Offset(160, 760),
     ];
     return treeWorld.map((Offset world) {
-      final Offset s = world - cam;
       return Positioned(
-        left: s.dx - 60,
-        top: s.dy - 120,
+        left: world.dx - 60,
+        top: world.dy - 120,
         child: IgnorePointer(
           child: Opacity(
             opacity: 0.72,
@@ -927,14 +938,14 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
     }).toList();
   }
 
-  List<Widget> _buildPlantGrowthOverlays(Offset cam) {
+  List<Widget> _buildPlantGrowthOverlaysWorld() {
     return _plantedItems.map((PlantedItem item) {
       final _GrowthStage stage = _growthStageFor(item);
-      final Offset s = item.position - cam;
+      final Offset world = item.position;
       if (stage == _GrowthStage.seed) {
         return Positioned(
-          left: s.dx - 26,
-          top: s.dy - 30,
+          left: world.dx - 26,
+          top: world.dy - 30,
           child: IgnorePointer(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -968,8 +979,8 @@ class _GardenSeedFarmScreenState extends State<GardenSeedFarmScreen> {
 
       final bool isMature = stage == _GrowthStage.mature;
       return Positioned(
-        left: s.dx - 25,
-        top: s.dy - (isMature ? 56 : 48),
+        left: world.dx - 25,
+        top: world.dy - (isMature ? 56 : 48),
         child: IgnorePointer(
           child: Column(
             mainAxisSize: MainAxisSize.min,

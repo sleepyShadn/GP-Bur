@@ -44,7 +44,7 @@ class GardenCareData {
       await _firestore.collection('users').doc(userId).set(
         <String, dynamic>{
           _kVitality: GardenCareLogic.defaultVitality,
-          _kLastActivityDay: todayKey,
+          _kLastActivityDay: GardenCareLogic.neverActivityDayKey,
           _kCareEvaluatedDay: todayKey,
         },
         SetOptions(merge: true),
@@ -63,7 +63,9 @@ class GardenCareData {
       await _firestore.collection('users').doc(userId).set(
         <String, dynamic>{
           _kVitality: vitality,
-          _kLastActivityDay: todayKey,
+          _kLastActivityDay: GardenCareLogic.isValidCareDayKey(lastAct)
+              ? lastAct!
+              : GardenCareLogic.neverActivityDayKey,
           _kCareEvaluatedDay: todayKey,
         },
         SetOptions(merge: true),
@@ -103,8 +105,8 @@ class GardenCareData {
 
     final int vitality = await loadAndReconcileVitality(userId);
     final Map<String, dynamic>? data = await _readUserFields(userId);
-    final String todayKey = GardenCareLogic.careDayKey(DateTime.now());
-    final String lastAct = (data?[_kLastActivityDay] as String?) ?? todayKey;
+    final String lastAct = (data?[_kLastActivityDay] as String?) ??
+        GardenCareLogic.neverActivityDayKey;
     final bool hasPlants = await userHasAnyPlant(userId);
 
     return GardenCarePublicState(

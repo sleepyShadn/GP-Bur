@@ -9,6 +9,7 @@ import '../domain/assessment_classifications.dart';
 import '../domain/feeling_input_validation.dart';
 import '../domain/mood_input_verdict.dart';
 import '../services/local_notification_inbox_store.dart';
+import '../services/garden_care_notification_coordinator.dart';
 import '../services/notification_service.dart';
 
 /// Result of validating and storing one follow-up answer.
@@ -57,6 +58,9 @@ class HomeData {
 
   Future<void> initNotifications(String userId) async {
     await _notificationService.initNotifications(userId);
+    if (userId.isNotEmpty) {
+      await GardenCareNotificationCoordinator().syncForUser(userId);
+    }
   }
 
   void listenToLatestAnalysis(String userId, Function(Map<String, dynamic>?) onData) {
