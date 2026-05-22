@@ -467,9 +467,11 @@ $text
 Reply with EXACTLY ONE WORD (lowercase, no punctuation) from this list:
 - gibberish — random letters, keyboard mash, nonsense, "aaaaaa", lorem ipsum, not real meaning
 - non_english — Arabic or other non-Latin script, or clearly not English
-- off_topic — coherent English but NOT about emotions, mood, stress, sleep, thoughts, relationships, mental wellbeing, or how the user feels (e.g. product list, code, recipe, random facts with no feeling)
+- off_topic — coherent English but NOT about emotions, mood, stress, sleep, thoughts, relationships, mental wellbeing, or how the user feels (e.g. "I'm going to the gym", "I'm studying", shopping lists, code, recipes, plans with no feeling)
 - positive — clearly happy/content/grateful with NO distress or symptoms to explore
-- valid — genuine English about feelings, mood, stress, anxiety, sleep, sadness, anger, social strain, focus, worry, etc.
+- valid — genuine English about feelings, mood, stress, anxiety, sleep, sadness, anger, social strain, focus, worry, etc. (e.g. "I'm anxious about my exam" is valid; "I'm studying" alone is off_topic)
+
+Examples: "going to the gym" → off_topic. "stressed about exams" → valid. "watching Netflix tonight" → off_topic.
 
 One word only.
 ''';
@@ -503,6 +505,9 @@ One word only.
       }
     } catch (e) {
       print('Error classifyInitialMoodInput: $e');
+    }
+    if (FeelingInputValidation.looksOffTopicWithoutWellbeing(text)) {
+      return MoodInputVerdict.offTopic;
     }
     return _basicTextValidation(text)
         ? MoodInputVerdict.okContinue

@@ -990,7 +990,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         decoration: InputDecoration(
                           hintText: _isCollectingInfo
                               ? 'Type your answer in English...'
-                              : "How are you feeling? (English only — describe mood, stress, or sleep)",
+                              : "How are you feeling? (English — mood, stress, sleep, worry — not plans like gym or studying alone)",
                           hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                           filled: true,
                           fillColor: const Color(0xFFE7CCCC).withOpacity(0.22),

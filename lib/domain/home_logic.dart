@@ -188,7 +188,10 @@ class HomeLogic {
       MoodInputVerdict.englishOnlyViolation =>
         'This check-in is English only. Do not use Arabic or other alphabets—describe your feelings or wellbeing in English.',
       MoodInputVerdict.offTopic =>
-        'That doesn’t sound like feelings or mental wellbeing. Please write in English about your mood, stress, sleep, thoughts, relationships, or how your day feels.',
+        'This check-in is for mood and mental wellbeing, not daily plans alone. '
+        'Writing about the gym, studying, work errands, or similar without your feelings '
+        'won’t start the questions. Please describe how you feel — stress, anxiety, sadness, '
+        'sleep, worry, or your emotional state in English.',
       MoodInputVerdict.gibberish => '',
       MoodInputVerdict.purelyPositive => '',
       MoodInputVerdict.okContinue => '',

@@ -1210,13 +1210,20 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
           ? 0.0
           : (cfg.id / WateringFlowersData.levels.length).clamp(0.0, 1.0);
       final int netPreview = _netRoundPoints(cfg);
+      final double hudMaxHeight =
+          (MediaQuery.sizeOf(context).height * 0.30).clamp(128.0, 210.0);
+      final bool compactHud = MediaQuery.sizeOf(context).height < 700;
 
       return Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: hudMaxHeight),
+          child: SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1249,7 +1256,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: Container(
@@ -1266,7 +1273,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                   borderRadius: BorderRadius.circular(9),
                   child: LinearProgressIndicator(
                     value: progress,
-                    minHeight: 9,
+                    minHeight: 8,
                     backgroundColor:
                         const Color(0xFF1E293B).withValues(alpha: 0.32),
                     valueColor: const AlwaysStoppedAnimation<Color>(
@@ -1277,137 +1284,53 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Center(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(22),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 22,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(22),
-                        color: Colors.white.withValues(alpha: 0.2),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.48),
-                          width: 1.1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 16,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        'STAGE ${cfg.id} / ${WateringFlowersData.levels.length}',
-                        style: TextStyle(
-                          color: const Color(0xFF042A22),
-                          fontSize: 19,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.35,
-                          shadows: [
-                            Shadow(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              blurRadius: 8,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (_timeLeft > 0 && _timeLeft <= 18)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '⏱ Low time — $_timeLeft s',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.bold,
-                    color: _timeLeft <= 8
-                        ? const Color(0xFFC2410C)
-                        : const Color(0xFFB45309),
-                    shadows: const [
-                      Shadow(
-                        color: Color(0xCCFFFFFF),
-                        blurRadius: 4,
-                        offset: Offset(0, 0.5),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+              padding: const EdgeInsets.only(top: 6),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
+                    padding: EdgeInsets.fromLTRB(
+                      12,
+                      compactHud ? 8 : 10,
+                      12,
+                      compactHud ? 8 : 10,
+                    ),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
+                      borderRadius: BorderRadius.circular(16),
                       color: Colors.white.withValues(alpha: 0.16),
                       border: Border.all(
                         color: Colors.white.withValues(alpha: 0.42),
-                        width: 1,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.08),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
                     ),
                     child: Column(
                       children: [
                         Text(
-                          cfg.levelTitle,
+                          'STAGE ${cfg.id}/${WateringFlowersData.levels.length} · ${cfg.levelTitle}',
                           textAlign: TextAlign.center,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: compactHud ? 12.5 : 13.5,
                             fontWeight: FontWeight.w800,
                             color: const Color(0xFF042A22),
-                            height: 1.2,
-                            shadows: [
-                              Shadow(
-                                color: Colors.white.withValues(alpha: 0.7),
-                                blurRadius: 6,
-                              ),
-                            ],
                           ),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 4),
                         Text(
-                          '$total plants this round · $alive alive  ·  Est. net $netPreview'
-                          '${cfg.id >= 5 ? "  ·  Faster thirst waves" : ""}'
-                          '  ·  Tap a plant  ·  Bonus water',
+                          '$alive/$total alive · net ~$netPreview'
+                          '${_timeLeft > 0 && _timeLeft <= 18 ? " · ⏱ $_timeLeft s" : ""}'
+                          '${cfg.id >= 5 ? " · fast thirst" : ""}'
+                          ' · tap plant · bonus water',
                           textAlign: TextAlign.center,
-                          maxLines: 4,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
+                            fontSize: compactHud ? 10 : 11,
+                            fontWeight: FontWeight.w600,
                             color: const Color(0xFF0F352C).withValues(alpha: 0.92),
-                            height: 1.38,
-                            shadows: [
-                              Shadow(
-                                color: Colors.white.withValues(alpha: 0.65),
-                                blurRadius: 5,
-                              ),
-                            ],
+                            height: 1.25,
                           ),
                         ),
                       ],
@@ -1416,7 +1339,9 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                 ),
               ),
             ),
-          ],
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -1657,10 +1582,11 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
     double waterRatio,
   ) {
     final int pct = (waterRatio * 100).round().clamp(0, 100);
-    final double bottomPad = 10 + MediaQuery.viewPaddingOf(context).bottom;
+    final double bottomPad =
+        6 + MediaQuery.viewPaddingOf(context).bottom.clamp(0.0, 24.0);
 
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad),
+      padding: EdgeInsets.fromLTRB(12, 4, 12, bottomPad),
       child: DecoratedBox(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
@@ -1678,7 +1604,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1688,14 +1614,14 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                   Icon(
                     Icons.water_drop_rounded,
                     color: _logic.colorWaterBlue.withValues(alpha: 0.98),
-                    size: 24,
+                    size: 20,
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       'Water tank',
                       style: TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.w900,
                         color: Colors.white.withValues(alpha: 0.95),
                       ),
@@ -1703,7 +1629,7 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                   ),
                   Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
@@ -1712,18 +1638,18 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
                       '$pct%',
                       style: const TextStyle(
                         fontWeight: FontWeight.w900,
-                        fontSize: 14,
+                        fontSize: 13,
                         color: Colors.white,
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(999),
                 child: LinearProgressIndicator(
-                  minHeight: 12,
+                  minHeight: 10,
                   value: waterRatio.clamp(0.0, 1.0),
                   backgroundColor: Colors.white.withValues(alpha: 0.22),
                   valueColor: AlwaysStoppedAnimation<Color>(
@@ -2002,7 +1928,11 @@ class _WateringFlowersScreenState extends State<WateringFlowersScreen>
             },
           ),
         ),
-        _bottomWaterReserve(context, cfg, waterRatio),
+        SafeArea(
+          top: false,
+          minimum: const EdgeInsets.only(bottom: 0),
+          child: _bottomWaterReserve(context, cfg, waterRatio),
+        ),
       ],
     );
   }
@@ -2454,43 +2384,61 @@ class _FieldPlantChip extends StatelessWidget {
                   ]
                 : null,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(mood, style: const TextStyle(fontSize: 11, height: 1)),
-              Expanded(
-                child: Transform.scale(
-                  scale: 0.52,
-                  alignment: Alignment.bottomCenter,
-                  child: plantLottie,
-                ),
-              ),
-              if (plant.awaitingWater && !plant.isDead)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(3),
-                  child: LinearProgressIndicator(
-                    value: plant.patience.clamp(0.0, 1.0),
-                    minHeight: 3,
-                    backgroundColor: Colors.white30,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Color.lerp(
-                        const Color(0xFFE53935),
-                        const Color(0xFF43A047),
-                        plant.patience,
-                      )!,
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final double maxH = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : 72;
+              final double footerH =
+                  plant.awaitingWater && !plant.isDead ? 8.0 : 12.0;
+              final double lottieH =
+                  (maxH - 14 - footerH).clamp(18.0, maxH * 0.78);
+
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(mood, style: const TextStyle(fontSize: 10, height: 1)),
+                  SizedBox(
+                    height: lottieH,
+                    width: double.infinity,
+                    child: FittedBox(
+                      fit: BoxFit.contain,
+                      alignment: Alignment.bottomCenter,
+                      child: SizedBox(
+                        width: 96,
+                        height: 96,
+                        child: plantLottie,
+                      ),
                     ),
                   ),
-                )
-              else if (!plant.isDead)
-                Text(
-                  'OK',
-                  style: TextStyle(
-                    fontSize: 8,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white.withValues(alpha: 0.65),
-                  ),
-                ),
-            ],
+                  if (plant.awaitingWater && !plant.isDead)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                        value: plant.patience.clamp(0.0, 1.0),
+                        minHeight: 3,
+                        backgroundColor: Colors.white30,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Color.lerp(
+                            const Color(0xFFE53935),
+                            const Color(0xFF43A047),
+                            plant.patience,
+                          )!,
+                        ),
+                      ),
+                    )
+                  else if (!plant.isDead)
+                    Text(
+                      'OK',
+                      style: TextStyle(
+                        fontSize: 7,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white.withValues(alpha: 0.65),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),
